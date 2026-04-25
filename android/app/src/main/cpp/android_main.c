@@ -3,6 +3,7 @@
 #include "asset_path.h"
 #include "scene.h"
 #include "vehicle.h"
+#include "data_source.h"
 #include <android/asset_manager.h>
 #include <android/input.h>
 #include <android/keycodes.h>
@@ -15,6 +16,8 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
 
 // Bump this string whenever APK assets change to force re-extraction on next launch.
 #define HAWKEYE_ASSET_VERSION "2"
@@ -357,6 +360,97 @@ static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
     }
 }
 
+// HawkeyeActivity (Kotlin) writes inbound .ulg files via .tmp + atomic rename to
+// inbox/current.ulg, then writes a fresh millis token into inbox/.ready. We poll
+// the sentinel's *contents* (not stat-mtime — f2fs has 1-second granularity and
+// would coalesce two shares in the same wall second) once per second and reload
+// the replay when the token changes.
+static data_source_t g_ds;
+static bool          g_ds_active = false;
+static long long     g_last_ready_token = 0;
+// Initialized to a large negative value so the first poll always proceeds.
+static double        g_last_poll_time = -1e9;
+
+// For camera-follow: each frame we translate orbit_target and camera.position
+// by (vehicle.position - g_last_vehicle_pos). Initialized to vehicle.position
+// at startup, and re-seeded on every reload so the first delta is zero.
+static Vector3       g_last_vehicle_pos = {0};
+
+// Returns the millis token in the sentinel file, or 0 on missing/empty/parse-fail.
+static long long read_ready_token(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char buf[64];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    if (n == 0) return 0;
+    buf[n] = '\0';
+    char *end = NULL;
+    long long val = strtoll(buf, &end, 10);
+    return (end == buf) ? 0 : val;
+}
+
+static int try_load_inbox_ulog(vehicle_t *vehicle) {
+    // Throttle to 1 Hz. Sentinel changes are user-driven (intent shares), so
+    // a per-frame stat()/read() at 60 Hz is wasted work — and since we read
+    // the sentinel's contents (not its mtime), an up-to-1-second detection
+    // delay is the only cost.
+    double now = GetTime();
+    if (now - g_last_poll_time < 1.0) return 0;
+    g_last_poll_time = now;
+
+    char ready[MAX_PATH_LEN];
+    snprintf(ready, sizeof(ready), "%s/inbox/.ready", s_internal_data_path);
+    long long token = read_ready_token(ready);
+    if (token == 0 || token == g_last_ready_token) return 0;
+
+    // Parse-then-swap: try to construct the new data source first. If it
+    // fails (corrupt file, partial copy, etc.) the previous replay keeps
+    // playing — we don't tear down working state on speculation.
+    char ulg[MAX_PATH_LEN];
+    snprintf(ulg, sizeof(ulg), "%s/inbox/current.ulg", s_internal_data_path);
+    data_source_t new_ds = {0};
+    int rc = data_source_ulog_create(&new_ds, ulg);
+    if (rc != 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "Hawkeye",
+            "data_source_ulog_create(%s) failed: %d", ulg, rc);
+        // Mark the bad token consumed so we don't retry every second; the
+        // user must re-share to trigger another attempt.
+        g_last_ready_token = token;
+        return 0;
+    }
+
+    if (g_ds_active) {
+        data_source_close(&g_ds);
+        vehicle_reset_trail(vehicle);
+    }
+    g_ds = new_ds;
+    g_ds_active = true;
+    g_last_ready_token = token;
+
+    // Pre-seed origin from the parsed home so positions are computed relative
+    // to home. vehicle_update's own first-sample origin-init latches onto
+    // whatever state it sees first — if state.lat is briefly 0 (drone powered
+    // on, no GPS lock yet), it sets lat0=0 and the rest of the flight renders
+    // at absolute lat/lon coordinates millions of meters from origin. The ULog
+    // pre-scan populates ctx->home reliably, so use it.
+    if (g_ds.home.valid) {
+        vehicle->lat0 = g_ds.home.lat * 1e-7 * (M_PI / 180.0);
+        vehicle->lon0 = g_ds.home.lon * 1e-7 * (M_PI / 180.0);
+        vehicle->alt0 = g_ds.home.alt * 1e-3;
+        vehicle->origin_set = true;
+    }
+
+    // Re-seed the follow baseline so the first frame's delta covers the jump
+    // from the previous replay's last position (or the dummy startup position)
+    // to this replay's first valid sample — keeps the new drone in view.
+    g_last_vehicle_pos = vehicle->position;
+
+    __android_log_print(ANDROID_LOG_INFO, "Hawkeye",
+        "loaded ulg: duration=%.1fs token=%lld", g_ds.playback.duration_s, token);
+    return 1;
+}
+
 // Raylib's rcore_android.c owns android_main and calls user main() after platform setup.
 int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
@@ -405,8 +499,31 @@ int main(int argc, char *argv[]) {
     int     prev_count      = 0;
 
     scene.camera.target = orbit_target;
+    g_last_vehicle_pos  = vehicle.position;
+
+    // Pick up a .ulg already delivered by an intent before native main() ran.
+    try_load_inbox_ulog(&vehicle);
 
     while (!WindowShouldClose()) {
+        // Catch re-share into the running app (HawkeyeActivity.onNewIntent).
+        try_load_inbox_ulog(&vehicle);
+
+        if (g_ds_active) {
+            data_source_poll(&g_ds, GetFrameTime());
+            vehicle_update(&vehicle, &g_ds.state, &g_ds.home);
+
+            // Camera follow: translate the orbit center and the camera by the
+            // vehicle's frame-to-frame motion so the user's orbit/pan offset
+            // (relative to the vehicle) stays constant.
+            if (g_ds.state.valid) {
+                Vector3 delta = Vector3Subtract(vehicle.position, g_last_vehicle_pos);
+                orbit_target = Vector3Add(orbit_target, delta);
+                scene.camera.position = Vector3Add(scene.camera.position, delta);
+                scene.camera.target = orbit_target;
+                g_last_vehicle_pos = vehicle.position;
+            }
+        }
+
         handle_touch(&scene.camera, &orbit_target,
                      &prev_count, &prev_touch,
                      &prev_pinch_dist, &prev_mid);
@@ -416,7 +533,7 @@ int main(int argc, char *argv[]) {
                 scene_draw(&scene);
                 vehicle_draw(&vehicle, scene.theme,
                              /*selected=*/true,
-                             /*trail_mode=*/0,
+                             /*trail_mode=*/g_ds_active ? 1 : 0,
                              /*show_ground_track=*/false,
                              /*cam_pos=*/scene.camera.position,
                              /*classic_colors=*/false);
@@ -424,6 +541,10 @@ int main(int argc, char *argv[]) {
         EndDrawing();
     }
 
+    if (g_ds_active) {
+        data_source_close(&g_ds);
+        g_ds_active = false;
+    }
     vehicle_cleanup(&vehicle);
     scene_cleanup(&scene);
     SetLoadFileTextCallback(NULL);

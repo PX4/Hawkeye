@@ -4,23 +4,41 @@ Android port of the Hawkeye 3D renderer, running the desktop C/Raylib scene nati
 
 ## Architecture
 
-The app has no Java/Kotlin logic beyond the manifest declaration. `NativeActivity` loads `libhawkeye.so`, which runs a standard C `main()` entry point via Raylib's Android platform backend.
+The app is a `NativeActivity` subclass (`HawkeyeActivity`, ~50 lines of Kotlin) that loads `libhawkeye.so` and runs a standard C `main()` via Raylib's Android platform backend. The Kotlin layer exists only to receive `VIEW`/`SEND` intents for `.ulg` files — all rendering and replay logic is C.
 
 ```
 android/
 ├── app/src/main/
-│   ├── AndroidManifest.xml       — declares NativeActivity, requires OpenGL ES 3.0
+│   ├── AndroidManifest.xml       — declares HawkeyeActivity, requires OpenGL ES 3.0
 │   ├── assets/                   — all symlinks into the parent Hawkeye project
 │   │   ├── fonts  -> ../../../../fonts
 │   │   ├── models -> ../../../../models
 │   │   ├── shaders -> ../../../../shaders
 │   │   └── themes -> ../../../../themes
+│   ├── java/com/px4/hawkeye/android/
+│   │   └── HawkeyeActivity.kt    — copies inbound .ulg into filesDir/inbox/, writes .ready sentinel
 │   └── cpp/
 │       ├── CMakeLists.txt        — fetches Raylib 5.5, compiles rendering subset
-│       └── android_main.c        — entry point: scene_init + vehicle_init + render loop
+│       └── android_main.c        — entry point: extracts assets, polls inbox sentinel, render loop
 ```
 
-The Hawkeye source files compiled in are: `scene.c`, `vehicle.c`, `asset_path.c`, `theme.c`, `ortho_panel.c`. MAVLink, ULog, HUD, and replay code are excluded.
+The Hawkeye source files compiled in are: `scene.c`, `vehicle.c`, `theme.c`, `ortho_panel.c`, plus the ULog replay subset (`data_source_ulog.c`, `ulog_parser.c`, `ulog_replay.c`). MAVLink, HUD, and the desktop multi-drone replay machinery are excluded.
+
+## Loading flight logs
+
+The app accepts `.ulg` files via Android `VIEW` and `SEND` intents — open a `.ulg` from Drive, Files, or Gmail and pick Hawkeye. There is no in-app file picker yet.
+
+Mechanism: `HawkeyeActivity.handleIntent` copies the file bytes via `ContentResolver` to `filesDir/inbox/current.ulg` and touches `filesDir/inbox/.ready`. The native render loop `stat()`s the sentinel each frame and reloads the replay when its mtime changes, so re-sharing a different `.ulg` into the running app swaps the playback live (the activity uses `launchMode="singleTask"` so the same instance receives subsequent intents via `onNewIntent`).
+
+To test from the command line:
+
+```bash
+adb push some-flight.ulg /sdcard/Download/
+adb shell am start -a android.intent.action.VIEW \
+    -d "file:///sdcard/Download/some-flight.ulg" \
+    -t application/octet-stream \
+    com.px4.hawkeye.android/.HawkeyeActivity
+```
 
 ## Shader Compatibility
 
@@ -81,6 +99,6 @@ Raylib 5.5 is fetched automatically by CMake on the first build. Built ABIs: `ar
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n com.px4.hawkeye.android/android.app.NativeActivity
+adb shell am start -n com.px4.hawkeye.android/.HawkeyeActivity
 ```
 

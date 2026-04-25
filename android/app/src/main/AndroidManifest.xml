@@ -15,10 +15,11 @@
         android:theme="@style/Theme.HawkeyeAndroid">
 
         <activity
-            android:name="android.app.NativeActivity"
+            android:name=".HawkeyeActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden">
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|fontScale|smallestScreenSize|screenLayout|density|layoutDirection">
 
             <meta-data
                 android:name="android.app.lib_name"
@@ -27,6 +28,38 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- file:// VIEW with .ulg extension. Triple pathPattern is the standard
+                 Android workaround for filenames containing dots (e.g. log.2024.ulg). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" />
+                <data android:mimeType="*/*" />
+                <data android:host="*" />
+                <data android:pathPattern=".*\\.ulg" />
+                <data android:pathPattern=".*\\..*\\.ulg" />
+                <data android:pathPattern=".*\\..*\\..*\\.ulg" />
+            </intent-filter>
+
+            <!-- content:// VIEW + SEND. ULog has no IANA-registered MIME, and
+                 in practice every real-world sender (WhatsApp, Gmail, Drive,
+                 Files) tags .ulg as application/octet-stream because that's
+                 the catch-all for "binary file we don't recognize". Without
+                 octet-stream here Hawkeye never appears in the share sheet
+                 for actual user-shared logs. The cost is that we also appear
+                 for other unknown binaries — accepted; pathPattern can't
+                 filter content URIs (provider-internal paths). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/ulog" />
+                <data android:mimeType="application/x-ulog" />
             </intent-filter>
         </activity>
 
