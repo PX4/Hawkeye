@@ -15,7 +15,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(raylib)
 
-# Hawkeye rendering source subset — no MAVLink/ULog/HUD
+# Hawkeye rendering source subset — no MAVLink/HUD; ULog replay is included so
+# the app can play back .ulg files delivered via VIEW/SEND intents.
 # CMakeLists.txt lives at android/app/src/main/cpp/ — five levels up is the repo root
 set(HAWKEYE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../src")
 
@@ -25,6 +26,9 @@ add_library(hawkeye SHARED
     ${HAWKEYE_SRC}/vehicle.c
     ${HAWKEYE_SRC}/theme.c
     ${HAWKEYE_SRC}/ortho_panel.c
+    ${HAWKEYE_SRC}/data_source_ulog.c
+    ${HAWKEYE_SRC}/ulog_parser.c
+    ${HAWKEYE_SRC}/ulog_replay.c
 )
 
 target_include_directories(hawkeye PRIVATE
