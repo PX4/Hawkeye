@@ -29,6 +29,7 @@ add_library(hawkeye SHARED
     ${HAWKEYE_SRC}/data_source_ulog.c
     ${HAWKEYE_SRC}/ulog_parser.c
     ${HAWKEYE_SRC}/ulog_replay.c
+    ${HAWKEYE_SRC}/ulog_replay_apply.c
 )
 
 target_include_directories(hawkeye PRIVATE
