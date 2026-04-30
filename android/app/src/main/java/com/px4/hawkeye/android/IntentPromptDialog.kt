@@ -14,6 +14,7 @@ import androidx.appcompat.app.AlertDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.lang.ref.WeakReference
@@ -24,6 +25,12 @@ object IntentPromptDialog {
     // before showing a fresh one (rapid re-share = "user wants the latest file").
     private var current: WeakReference<AlertDialog>? = null
 
+    // Tracks the in-flight name-resolution coroutine. Cancelling it before
+    // launching a new one guarantees that whichever intent arrives last is the
+    // one whose dialog actually appears — without this, two near-simultaneous
+    // intents could resolve to Main in IO-completion order, not arrival order.
+    private var pendingJob: Job? = null
+
     /**
      * Shows a Material 3 "Open ULog?" confirmation. Resolves the human-readable
      * filename and source authority off the main thread (ContentResolver.query
@@ -31,7 +38,8 @@ object IntentPromptDialog {
      * Invokes [onConfirm] on the Main thread when the user taps Open.
      */
     fun confirmOpen(activity: Activity, scope: CoroutineScope, uri: Uri, onConfirm: () -> Unit) {
-        scope.launch {
+        pendingJob?.cancel()
+        pendingJob = scope.launch {
             val name = withContext(Dispatchers.IO) { resolveDisplayName(activity, uri) }
             val source = uri.authority?.takeIf { it.isNotBlank() } ?: uri.path ?: uri.toString()
 
