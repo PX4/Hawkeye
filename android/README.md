@@ -28,7 +28,7 @@ The Hawkeye source files compiled in are: `scene.c`, `vehicle.c`, `theme.c`, `or
 
 The app accepts `.ulg` files via Android `VIEW` and `SEND` intents — open a `.ulg` from Drive, Files, or Gmail and pick Hawkeye. There is no in-app file picker yet.
 
-Mechanism: `HawkeyeActivity.handleIntent` copies the file bytes via `ContentResolver` to `filesDir/inbox/current.ulg` and touches `filesDir/inbox/.ready`. The native render loop `stat()`s the sentinel each frame and reloads the replay when its mtime changes, so re-sharing a different `.ulg` into the running app swaps the playback live (the activity uses `launchMode="singleTask"` so the same instance receives subsequent intents via `onNewIntent`).
+Mechanism: the activity receives the inbound intent, copies the file bytes via `ContentResolver` to `filesDir/inbox/current.ulg` (via `.tmp` + atomic rename), and writes a millis token to `filesDir/inbox/.ready`. The native render loop checks that sentinel at roughly 1 Hz, reads its contents, and reloads the replay when the token changes, so re-sharing a different `.ulg` into the running app swaps the playback live. The activity uses `launchMode="singleTop"`, so if Hawkeye is already at the top, subsequent intents are delivered via `onNewIntent` to the existing instance.
 
 To test from the command line:
 

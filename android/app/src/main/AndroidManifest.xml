@@ -31,14 +31,16 @@
             </intent-filter>
 
             <!-- file:// VIEW with .ulg extension. Triple pathPattern is the standard
-                 Android workaround for filenames containing dots (e.g. log.2024.ulg). -->
+                 Android workaround for filenames containing dots (e.g. log.2024.ulg).
+                 No android:host: file:///path URIs have a null authority, and any
+                 host constraint (including host="*") would NO_MATCH them via AOSP's
+                 AuthorityEntry.match. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="file" />
                 <data android:mimeType="*/*" />
-                <data android:host="*" />
                 <data android:pathPattern=".*\\.ulg" />
                 <data android:pathPattern=".*\\..*\\.ulg" />
                 <data android:pathPattern=".*\\..*\\..*\\.ulg" />

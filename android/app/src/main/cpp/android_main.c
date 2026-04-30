@@ -16,8 +16,6 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <time.h>
-#include <unistd.h>
 
 // Bump this string whenever APK assets change to force re-extraction on next launch.
 #define HAWKEYE_ASSET_VERSION "2"
@@ -428,12 +426,18 @@ static int try_load_inbox_ulog(vehicle_t *vehicle) {
     g_ds_active = true;
     g_last_ready_token = token;
 
+    // Reset origin tracking so a new replay without a valid home falls back to
+    // vehicle_update's wait-and-latch logic instead of inheriting the previous
+    // replay's origin (lat0/lon0/alt0 would otherwise stay set from the old log).
+    vehicle->origin_set = false;
+    vehicle->origin_wait_count = 0;
+
     // Pre-seed origin from the parsed home so positions are computed relative
     // to home. vehicle_update's own first-sample origin-init latches onto
     // whatever state it sees first — if state.lat is briefly 0 (drone powered
     // on, no GPS lock yet), it sets lat0=0 and the rest of the flight renders
     // at absolute lat/lon coordinates millions of meters from origin. The ULog
-    // pre-scan populates ctx->home reliably, so use it.
+    // pre-scan populates ctx->home reliably, so use it when available.
     if (g_ds.home.valid) {
         vehicle->lat0 = g_ds.home.lat * 1e-7 * (M_PI / 180.0);
         vehicle->lon0 = g_ds.home.lon * 1e-7 * (M_PI / 180.0);
