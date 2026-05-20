@@ -493,6 +493,9 @@ int main(int argc, char *argv[]) {
     vehicle_init(&vehicle, MODEL_QUADROTOR, scene.lighting_shader);
 
     hud_init(&g_hud);
+    // Bump HUD scale on mobile so values/labels meet M3 readability floors
+    // (~42 px body, ~33 px label at this DPI). Desktop/WASM leave this at 1.0.
+    g_hud.scale_mul = 1.5f;
 
     // Position vehicle slightly above origin so it's visible with the default camera
     vehicle.position = (Vector3){ 0.0f, 0.5f, 0.0f };
