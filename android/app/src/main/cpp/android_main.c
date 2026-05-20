@@ -4,6 +4,7 @@
 #include "scene.h"
 #include "vehicle.h"
 #include "data_source.h"
+#include "hud.h"
 #include <android/asset_manager.h>
 #include <android/input.h>
 #include <android/keycodes.h>
@@ -366,6 +367,7 @@ static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
 static data_source_t g_ds;
 static bool          g_ds_active = false;
 static long long     g_last_ready_token = 0;
+static hud_t         g_hud;
 // Initialized to a large negative value so the first poll always proceeds.
 static double        g_last_poll_time = -1e9;
 
@@ -490,6 +492,8 @@ int main(int argc, char *argv[]) {
     vehicle_t vehicle = {0};
     vehicle_init(&vehicle, MODEL_QUADROTOR, scene.lighting_shader);
 
+    hud_init(&g_hud);
+
     // Position vehicle slightly above origin so it's visible with the default camera
     vehicle.position = (Vector3){ 0.0f, 0.5f, 0.0f };
 
@@ -531,6 +535,12 @@ int main(int argc, char *argv[]) {
         handle_touch(&scene.camera, &orbit_target,
                      &prev_count, &prev_touch,
                      &prev_pinch_dist, &prev_mid);
+
+        hud_update(&g_hud,
+                   g_ds_active ? g_ds.state.time_usec : 0,
+                   g_ds_active ? g_ds.connected : false,
+                   GetFrameTime());
+
         BeginDrawing();
             scene_draw_sky(&scene);
             BeginMode3D(scene.camera);
@@ -542,6 +552,23 @@ int main(int argc, char *argv[]) {
                              /*cam_pos=*/scene.camera.position,
                              /*classic_colors=*/false);
             EndMode3D();
+
+            // HUD overlay. When no .ulg is loaded, hand hud_draw a zeroed
+            // data_source so the status row reads "Waiting…" without crashing.
+            {
+                data_source_t empty_src = {0};
+                const data_source_t *src_ptr = g_ds_active ? &g_ds : &empty_src;
+                hud_marker_data_t user_md = {0};
+                hud_marker_data_t sys_md  = {0};
+                bool has_awaiting_gps = g_ds_active && !vehicle.origin_set && g_ds.home.valid;
+                if (g_hud.mode == HUD_CONSOLE) {
+                    hud_draw(&g_hud, &vehicle, src_ptr, /*vehicle_count=*/1, /*selected=*/0,
+                             GetScreenWidth(), GetScreenHeight(),
+                             scene.theme, /*trail_mode=*/g_ds_active ? 1 : 0,
+                             &user_md, &sys_md, /*marker_vehicle_count=*/1,
+                             /*ghost_mode=*/false, /*has_tier3=*/false, has_awaiting_gps);
+                }
+            }
         EndDrawing();
     }
 
@@ -549,6 +576,7 @@ int main(int argc, char *argv[]) {
         data_source_close(&g_ds);
         g_ds_active = false;
     }
+    hud_cleanup(&g_hud);
     vehicle_cleanup(&vehicle);
     scene_cleanup(&scene);
     SetLoadFileTextCallback(NULL);

@@ -30,6 +30,20 @@ add_library(hawkeye SHARED
     ${HAWKEYE_SRC}/ulog_parser.c
     ${HAWKEYE_SRC}/ulog_replay.c
     ${HAWKEYE_SRC}/ulog_replay_apply.c
+
+    # HUD subsystem — shared with desktop and WASM builds. Mirrors wasm/CMakeLists.txt.
+    ${HAWKEYE_SRC}/hud.c
+    ${HAWKEYE_SRC}/hud_help.c
+    ${HAWKEYE_SRC}/hud_instruments.c
+    ${HAWKEYE_SRC}/hud_transport.c
+    ${HAWKEYE_SRC}/hud_telemetry.c
+    ${HAWKEYE_SRC}/hud_annunciators.c
+    ${HAWKEYE_SRC}/tactical_hud.c
+    ${HAWKEYE_SRC}/debug_panel.c
+    ${HAWKEYE_SRC}/replay_trail.c
+    ${HAWKEYE_SRC}/replay_markers.c
+    ${HAWKEYE_SRC}/replay_conflict.c
+    ${HAWKEYE_SRC}/ui_marker_input.c
 )
 
 target_include_directories(hawkeye PRIVATE
