@@ -42,6 +42,11 @@ typedef struct {
     Font font_value;    // JetBrains Mono for telemetry numbers
     Font font_label;    // Inter for labels and status text
 
+    // Extra multiplier on top of the screen-height-derived scale. 1.0 on
+    // desktop/WASM; mobile bumps this so labels/values meet M3 readability
+    // floors at typical phone hold distance.
+    float scale_mul;
+
     // Toast notification (fades in/out above timeline)
     char toast_text[64];
     float toast_timer;  // seconds remaining (0 = hidden)
