@@ -21,7 +21,11 @@ class ReplayViewModel(
     private val _state = MutableStateFlow(ReplayState())
     val state = _state.asStateFlow()
 
-    private val _events = Channel<ReplayEvent>()
+    // Buffered (not rendezvous) so emitting an event never blocks ingest/preview
+    // coroutines waiting for a collector — `ObserveAsEvents` stops collecting when
+    // the lifecycle drops below STARTED, and a rendezvous `send` would suspend
+    // there, leaving e.g. `isIngesting = true` until the user returns to the app.
+    private val _events = Channel<ReplayEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
 
     private var pendingUri: String? = null

@@ -9,6 +9,8 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
@@ -56,11 +58,20 @@ class HawkeyeActivity :
     override val savedStateRegistry: SavedStateRegistry
         get() = savedStateRegistryController.savedStateRegistry
 
-    // Resolved via Koin directly — `by viewModel()` from `koin-androidx` is restricted
-    // to `ComponentActivity` / `Fragment`, and NativeActivity extends bare
-    // `android.app.Activity`. Since `configChanges` in the manifest covers everything
-    // we'd care about, the activity isn't recreated mid-session and the VM lifetime
-    // matches the process — equivalent in practice to a ViewModelStore-scoped VM.
+    /**
+     * Koin's `by viewModel()` is restricted to `ComponentActivity` / `Fragment`, and
+     * `NativeActivity` extends bare `android.app.Activity`. We get the same scoping
+     * behavior by going through `ViewModelProvider` directly with a factory that
+     * delegates to Koin — the resulting VM lives in [viewModelStoreInstance], so
+     * `viewModelStoreInstance.clear()` in [onDestroy] fires `ViewModel.onCleared()`
+     * and `viewModelScope` is cancelled instead of leaking past the activity.
+     */
+    private val koinViewModelFactory = object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            getKoin().get(clazz = modelClass.kotlin) as T
+    }
+
     private lateinit var viewModel: ReplayViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,7 +80,7 @@ class HawkeyeActivity :
         super.onCreate(savedInstanceState)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
 
-        viewModel = getKoin().get<ReplayViewModel>()
+        viewModel = ViewModelProvider(this, koinViewModelFactory)[ReplayViewModel::class.java]
         attachComposeOverlay()
         val fromFreshIngest = intent?.getBooleanExtra(EXTRA_FROM_TRAMPOLINE, false) == true
         viewModel.onAction(ReplayAction.OnAppStarted(fromFreshIngest = fromFreshIngest))
