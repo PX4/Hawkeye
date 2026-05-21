@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="core_presentation_error_disk_full">Out of storage. Free up some space and try again.</string>
+    <string name="core_presentation_error_not_found">The file could not be found.</string>
+    <string name="core_presentation_error_unknown">Something went wrong. Please try again.</string>
+</resources>
