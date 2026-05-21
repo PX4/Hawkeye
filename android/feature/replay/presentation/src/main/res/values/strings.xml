@@ -4,6 +4,9 @@
     <string name="replay_prompt_open">Open</string>
     <string name="replay_prompt_cancel">Cancel</string>
     <string name="replay_prompt_from_prefix">From: %1$s</string>
+    <!-- Confirm-open dialog body. Two placeholders so translators can reorder the
+         filename and source (and the separator between them) without code changes. -->
+    <string name="replay_prompt_open_message">%1$s\nFrom: %2$s</string>
     <string name="replay_prompt_no_file_title">No file loaded</string>
     <string name="replay_prompt_no_file_message">The application will do nothing. Share or open a .ulg file from another app to start a replay.</string>
     <string name="replay_prompt_ok">OK</string>

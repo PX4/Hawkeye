@@ -52,8 +52,11 @@ private fun ConfirmOpenDialog(
         title = { Text(stringResource(R.string.replay_prompt_open_title)) },
         text = {
             Text(
-                text = dialog.displayName + "\n" +
-                    stringResource(R.string.replay_prompt_from_prefix, dialog.source)
+                text = stringResource(
+                    R.string.replay_prompt_open_message,
+                    dialog.displayName,
+                    dialog.source
+                )
             )
         },
         confirmButton = {
