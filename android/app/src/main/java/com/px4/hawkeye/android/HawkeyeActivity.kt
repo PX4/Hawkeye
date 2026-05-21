@@ -1,158 +1,140 @@
 package com.px4.hawkeye.android
 
 import android.app.NativeActivity
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
+import android.graphics.Color
 import android.os.Bundle
-import android.util.Log
-import android.widget.Toast
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.IOException
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.compose.ui.platform.ComposeView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.px4.hawkeye.core.designsystem.HawkeyeTheme
+import com.px4.hawkeye.feature.replay.presentation.ReplayAction
+import com.px4.hawkeye.feature.replay.presentation.ReplayRoot
+import com.px4.hawkeye.feature.replay.presentation.ReplayViewModel
+import org.koin.android.ext.android.getKoin
 
 /**
- * NativeActivity subclass that ingests inbound .ulg files from VIEW/SEND intents.
+ * The renderer host. C/raylib owns the GL surface; this class only adds a Compose
+ * overlay for the "No file loaded" empty-state dialog.
  *
- * Intents push URIs into a SharedFlow; a Main-bound collector hands each URI to
- * Dispatchers.IO for the actual copy, then surfaces a Toast on completion. The
- * payload is written to inbox/current.ulg.tmp and atomically renamed into place
- * before the inbox/.ready sentinel is updated, so the native poll loop never
- * sees a half-written file. The sentinel stores a monotonic millis token (read
- * by the C side as content, not stat-mtime) so two intents in the same wall
- * clock second are still distinguishable.
+ * VIEW/SEND intents are NOT handled here — they go through [IntentRouterActivity], which
+ * does the file ingest and then starts this activity with no intent data. That isolation
+ * is what fixes the `DrawMesh+76` crash: cold-launching a NativeActivity with a VIEW
+ * intent races Raylib's `InitGraphicsDevice` against the system's
+ * `screenOrientation="landscape"` enforcement, leaving the EGL context in a state where
+ * `glCreateShader`/`glGenTextures` return 0 and the materials end up with `shader.locs = NULL`.
+ *
+ * NativeActivity extends [android.app.Activity], not [androidx.activity.ComponentActivity],
+ * so the lifecycle / ViewModelStore / SavedStateRegistry owners that Compose + Koin need
+ * are implemented by hand — same call ordering ComponentActivity uses internally
+ * (attach/restore before super.onCreate, ON_PAUSE/STOP/DESTROY before super,
+ * ON_START/RESUME after super).
  */
-class HawkeyeActivity : NativeActivity() {
+class HawkeyeActivity :
+    NativeActivity(),
+    LifecycleOwner,
+    ViewModelStoreOwner,
+    SavedStateRegistryOwner {
 
-    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val inbound = MutableSharedFlow<Uri>(extraBufferCapacity = 8)
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    override val lifecycle: Lifecycle get() = lifecycleRegistry
+
+    private val viewModelStoreInstance = ViewModelStore()
+    override val viewModelStore: ViewModelStore get() = viewModelStoreInstance
+
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
+    override val savedStateRegistry: SavedStateRegistry
+        get() = savedStateRegistryController.savedStateRegistry
+
+    // Resolved via Koin directly — `by viewModel()` from `koin-androidx` is restricted
+    // to `ComponentActivity` / `Fragment`, and NativeActivity extends bare
+    // `android.app.Activity`. Since `configChanges` in the manifest covers everything
+    // we'd care about, the activity isn't recreated mid-session and the VM lifetime
+    // matches the process — equivalent in practice to a ViewModelStore-scoped VM.
+    private lateinit var viewModel: ReplayViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        savedStateRegistryController.performAttach()
+        savedStateRegistryController.performRestore(savedInstanceState)
         super.onCreate(savedInstanceState)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
 
-        // Single collector serializes intents — concurrent .ulg shares can never
-        // race the same destination file.
-        activityScope.launch {
-            inbound.collect { uri ->
-                val result = withContext(Dispatchers.IO) { ingest(uri) }
-                val msg = result.fold(
-                    onSuccess = { bytes -> "Loaded ULog ($bytes bytes)" },
-                    onFailure = { e -> "Failed to load ULog: ${e.message ?: e::class.java.simpleName}" }
-                )
-                Toast.makeText(this@HawkeyeActivity, msg, Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        val incoming = extractUri(intent)
-        // region PROTOTYPE_PROMPT
-        // Cold launch with no inbound share = fresh slate. Drop any previous
-        // replay payload so the native poll loop starts at origin, then prompt.
-        // Backgrounded -> foregrounded does NOT re-enter onCreate, so an
-        // in-memory replay survives a Home press unaffected — only a real
-        // process restart (force-stop, system kill, days later) hits this.
-        if (PROMPT_BEFORE_OPEN && incoming == null) {
-            clearInbox()
-            IntentPromptDialog.showNoFileLoaded(this)
-        }
-        // endregion
-
-        offerUri(incoming)
+        viewModel = getKoin().get<ReplayViewModel>()
+        attachComposeOverlay()
+        val fromFreshIngest = intent?.getBooleanExtra(EXTRA_FROM_TRAMPOLINE, false) == true
+        viewModel.onAction(ReplayAction.OnAppStarted(fromFreshIngest = fromFreshIngest))
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        offerUri(extractUri(intent))
+    override fun onStart() {
+        super.onStart()
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+    }
+
+    override fun onPause() {
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+        super.onPause()
+    }
+
+    override fun onStop() {
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        savedStateRegistryController.performSave(outState)
     }
 
     override fun onDestroy() {
-        activityScope.cancel()
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        if (!isChangingConfigurations) viewModelStoreInstance.clear()
         super.onDestroy()
     }
 
-    private fun offerUri(uri: Uri?) {
-        if (uri == null) return
-        // region PROTOTYPE_PROMPT
-        if (PROMPT_BEFORE_OPEN) {
-            IntentPromptDialog.confirmOpen(this, activityScope, uri) { emitInbound(uri) }
-            return
+    private fun attachComposeOverlay() {
+        val composeView = ComposeView(this).apply { setBackgroundColor(Color.TRANSPARENT) }
+        // Owners must be set before addContentView — the Compose recomposer binds to
+        // ViewTreeLifecycleOwner at attach time.
+        composeView.setViewTreeLifecycleOwner(this)
+        composeView.setViewTreeViewModelStoreOwner(this)
+        composeView.setViewTreeSavedStateRegistryOwner(this)
+
+        composeView.setContent {
+            HawkeyeTheme {
+                ReplayRoot(viewModel = viewModel)
+            }
         }
-        // endregion
-        emitInbound(uri)
+
+        window.addContentView(
+            composeView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
     }
-
-    private fun emitInbound(uri: Uri) {
-        if (!inbound.tryEmit(uri)) {
-            Log.w(TAG, "dropped intent (buffer full): $uri")
-        }
-    }
-
-    // region PROTOTYPE_PROMPT
-    private fun clearInbox() {
-        val inbox = File(filesDir, "inbox")
-        File(inbox, ".ready").delete()
-        File(inbox, "current.ulg").delete()
-        File(inbox, "current.ulg.tmp").delete()
-    }
-    // endregion
-
-    private fun extractUri(intent: Intent?): Uri? {
-        if (intent == null) return null
-        return when (intent.action) {
-            Intent.ACTION_VIEW -> intent.data
-            Intent.ACTION_SEND -> getStreamExtra(intent)
-            else -> null
-        }
-    }
-
-    private fun getStreamExtra(intent: Intent): Uri? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(Intent.EXTRA_STREAM)
-        }
-
-    /**
-     * Runs on Dispatchers.IO. Writes via .tmp + atomic rename so the canonical
-     * path is never observed mid-copy. The sentinel is written last with a
-     * fresh millis token; the C side reads the content (not mtime) so f2fs's
-     * 1-second mtime granularity can't coalesce back-to-back shares.
-     */
-    private fun ingest(uri: Uri): Result<Long> = runCatching {
-        val inbox = File(filesDir, "inbox").apply { mkdirs() }
-        val tmp = File(inbox, "current.ulg.tmp")
-        val target = File(inbox, "current.ulg")
-        val ready = File(inbox, ".ready")
-
-        val bytes = (contentResolver.openInputStream(uri)
-            ?: throw IOException("openInputStream returned null for $uri")).use { input ->
-            tmp.outputStream().use { output -> input.copyTo(output) }
-        }
-
-        if (!tmp.renameTo(target)) {
-            tmp.delete()
-            throw IOException("renameTo $target failed")
-        }
-
-        ready.writeText(System.currentTimeMillis().toString())
-        Log.i(TAG, "ingested $uri ($bytes bytes)")
-        bytes
-    }.onFailure { Log.e(TAG, "ingest failed for $uri", it) }
 
     companion object {
-        private const val TAG = "Hawkeye"
-
-        // region PROTOTYPE_PROMPT
-        // Set to false to bypass the confirm/empty-state dialogs and let intents
-        // flow straight through to ingestion, like before this prototype tweak.
-        private const val PROMPT_BEFORE_OPEN = true
-        // endregion
+        /**
+         * Set by `IntentRouterActivity` on the intent it uses to launch us, so we
+         * know the inbox holds a file the user just explicitly opened (and we
+         * shouldn't wipe it on cold-launch like we do for a plain icon tap).
+         */
+        const val EXTRA_FROM_TRAMPOLINE = "com.px4.hawkeye.android.from_trampoline"
     }
 }

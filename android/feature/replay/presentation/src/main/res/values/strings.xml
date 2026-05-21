@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="replay_prompt_open_title">Open ULog?</string>
+    <string name="replay_prompt_open">Open</string>
+    <string name="replay_prompt_cancel">Cancel</string>
+    <string name="replay_prompt_from_prefix">From: %1$s</string>
+    <string name="replay_prompt_no_file_title">No file loaded</string>
+    <string name="replay_prompt_no_file_message">The application will do nothing. Share or open a .ulg file from another app to start a replay.</string>
+    <string name="replay_prompt_ok">OK</string>
+    <string name="replay_ingest_success">Loaded ULog (%1$d bytes)</string>
+    <string name="replay_error_open_failed">Could not open the shared file.</string>
+    <string name="replay_error_write_failed">Could not save the file. Try freeing up some storage.</string>
+    <string name="replay_error_unknown">Could not load the file.</string>
+</resources>

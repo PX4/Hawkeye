@@ -1,13 +1,3 @@
 <resources>
     <string name="app_name">Hawkeye Android</string>
-
-    <!-- region PROTOTYPE_PROMPT (delete with IntentPromptDialog) -->
-    <string name="prompt_open_title">Open ULog?</string>
-    <string name="prompt_open">Open</string>
-    <string name="prompt_cancel">Cancel</string>
-    <string name="prompt_from_prefix">From: %1$s</string>
-    <string name="prompt_no_file_title">No file loaded</string>
-    <string name="prompt_no_file_message">The application will do nothing. Share or open a .ulg file from another app to start a replay.</string>
-    <string name="prompt_ok">OK</string>
-    <!-- endregion -->
 </resources>

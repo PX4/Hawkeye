@@ -1,5 +1,5 @@
 plugins {
-    alias(libs.plugins.android.application)
+    id("hawkeye.android.application")
 }
 
 android {
@@ -21,7 +21,6 @@ android {
 
     defaultConfig {
         applicationId = "com.px4.hawkeye.android"
-        minSdk = 29
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -44,18 +43,27 @@ android {
             )
         }
     }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
 }
 
 dependencies {
+    implementation(project(":core:domain"))
+    implementation(project(":core:presentation"))
+    implementation(project(":core:design-system"))
+    implementation(project(":feature:replay:domain"))
+    implementation(project(":feature:replay:data"))
+    implementation(project(":feature:replay:presentation"))
+
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.material)
     implementation(libs.kotlinx.coroutines.android)
-    testImplementation(libs.junit)
+
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.savedstate.ktx)
+
+    implementation(libs.koin.android)
+    implementation(libs.koin.androidx.compose)
+
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

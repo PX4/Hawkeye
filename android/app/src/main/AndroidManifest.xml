@@ -5,6 +5,7 @@
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
 
     <application
+        android:name=".HawkeyeApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -29,6 +30,22 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- Trampoline for VIEW/SEND intents. Plain ComponentActivity, no native code —
+             keeps NativeActivity (HawkeyeActivity) from ever being cold-launched with an
+             intent, which races Raylib's InitGraphicsDevice against the system's
+             orientation/surface setup and crashes in DrawMesh+76. -->
+        <activity
+            android:name=".IntentRouterActivity"
+            android:exported="true"
+            android:theme="@style/Theme.HawkeyeTrampoline"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|fontScale|smallestScreenSize|screenLayout|density|layoutDirection"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
 
             <!-- file:// VIEW with .ulg extension. Triple pathPattern is the standard
                  Android workaround for filenames containing dots (e.g. log.2024.ulg).

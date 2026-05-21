@@ -1,10 +1,15 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Material 3 base. Activity is fullscreen OpenGL via NativeActivity, so the
-         only surfaces this theme styles in practice are the prototype dialogs. -->
-    <style name="Theme.HawkeyeAndroid" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/purple_500</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <item name="colorSecondary">@color/teal_200</item>
-        <item name="colorOnSecondary">@color/black</item>
+<resources>
+    <!-- The renderer fills the window via NativeActivity's SurfaceView; Android-side
+         chrome (dialogs) renders through Compose Material 3, which provides its own
+         theming. This activity theme only styles system bars and the brief first frame. -->
+    <style name="Theme.HawkeyeAndroid" parent="@android:style/Theme.Material.NoActionBar" />
+
+    <!-- IntentRouterActivity sits over whatever foreground task launched it (share sheet,
+         Files app, HawkeyeActivity itself). Translucent + transparent background so only
+         the Compose AlertDialog is visible while the trampoline is alive. -->
+    <style name="Theme.HawkeyeTrampoline" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
     </style>
 </resources>
