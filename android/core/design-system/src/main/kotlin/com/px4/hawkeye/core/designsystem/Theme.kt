@@ -7,33 +7,39 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val Purple200 = Color(0xFFBB86FC)
-private val Purple500 = Color(0xFF6200EE)
-private val Purple700 = Color(0xFF3700B3)
-private val Teal200 = Color(0xFF03DAC5)
-private val Teal700 = Color(0xFF018786)
-
-private val LightColors = lightColorScheme(
-    primary = Purple500,
-    onPrimary = Color.White,
-    secondary = Teal200,
-    onSecondary = Color.Black
-)
+// HUD-inspired palette (see design mockups): cyan primary, amber accent, dark slate surfaces.
+private val Cyan = Color(0xFF5CD0E6)
+private val OnCyan = Color(0xFF06222A)
+private val Amber = Color(0xFFFFB454)
+private val OnAmber = Color(0xFF241A06)
 
 private val DarkColors = darkColorScheme(
-    primary = Purple200,
-    onPrimary = Color.Black,
-    secondary = Teal200,
-    onSecondary = Color.Black
+    primary = Cyan,
+    onPrimary = OnCyan,
+    secondary = Amber,
+    onSecondary = OnAmber,
+    background = Color(0xFF0B0E13),
+    surface = Color(0xFF141A22),
+    surfaceVariant = Color(0xFF1C242F),
 )
 
+private val LightColors = lightColorScheme(
+    primary = Color(0xFF00687A),
+    onPrimary = Color.White,
+    secondary = Color(0xFF8A5A00),
+    onSecondary = Color.White,
+)
+
+// Material 3 Expressive theming (MaterialExpressiveTheme / MotionScheme) is internal in
+// material3 1.4.0 stable, so we use the standard MaterialTheme with the HUD-dark palette.
+// Switch to MaterialExpressiveTheme once it is public in a stable material3 release.
 @Composable
 fun HawkeyeTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
-        content = content
+        content = content,
     )
 }

@@ -1,0 +1,40 @@
+package com.px4.hawkeye.feature.settings.data
+
+import android.content.Context
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import com.px4.hawkeye.feature.settings.domain.AppSettings
+import com.px4.hawkeye.feature.settings.domain.DistanceUnit
+import com.px4.hawkeye.feature.settings.domain.SettingsRepository
+import com.px4.hawkeye.feature.settings.domain.ThemeMode
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+private val Context.dataStore by preferencesDataStore(name = "hawkeye_settings")
+private val THEME = stringPreferencesKey("theme_mode")
+private val UNIT = stringPreferencesKey("distance_unit")
+
+internal fun parseThemeMode(name: String?): ThemeMode =
+    ThemeMode.entries.firstOrNull { it.name == name } ?: ThemeMode.SYSTEM
+
+internal fun parseDistanceUnit(name: String?): DistanceUnit =
+    DistanceUnit.entries.firstOrNull { it.name == name } ?: DistanceUnit.METRIC
+
+class DataStoreSettingsRepository(private val context: Context) : SettingsRepository {
+
+    override val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
+        AppSettings(
+            themeMode = parseThemeMode(prefs[THEME]),
+            distanceUnit = parseDistanceUnit(prefs[UNIT]),
+        )
+    }
+
+    override suspend fun setThemeMode(mode: ThemeMode) {
+        context.dataStore.edit { it[THEME] = mode.name }
+    }
+
+    override suspend fun setDistanceUnit(unit: DistanceUnit) {
+        context.dataStore.edit { it[UNIT] = unit.name }
+    }
+}

@@ -19,6 +19,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.px4.hawkeye.android.render.RenderSession
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 import com.px4.hawkeye.feature.replay.presentation.ReplayAction
 import com.px4.hawkeye.feature.replay.presentation.ReplayRoot
@@ -82,7 +83,20 @@ class HawkeyeActivity :
 
         viewModel = ViewModelProvider(this, koinViewModelFactory)[ReplayViewModel::class.java]
         attachComposeOverlay()
-        val fromFreshIngest = intent?.getBooleanExtra(EXTRA_FROM_TRAMPOLINE, false) == true
+        val session = RenderSession.fromExtras(
+            mapOf(
+                RenderSession.KEY_MODE to intent?.getStringExtra(RenderSession.KEY_MODE),
+                RenderSession.KEY_PATH to intent?.getStringExtra(RenderSession.KEY_PATH),
+                RenderSession.KEY_HOST to intent?.getStringExtra(RenderSession.KEY_HOST),
+                RenderSession.KEY_PORT to intent?.getStringExtra(RenderSession.KEY_PORT),
+            )
+        )
+        // Plan 1: only the legacy inbox/trampoline path drives playback. A non-null
+        // session is plumbed here so Plan 2 (Replay.filePath) and Plan 3 (Live) can act
+        // on it; for now Replay still relies on the inbox sentinel and Live is a no-op.
+        val fromFreshIngest =
+            session is RenderSession.Replay ||
+                intent?.getBooleanExtra(EXTRA_FROM_TRAMPOLINE, false) == true
         viewModel.onAction(ReplayAction.OnAppStarted(fromFreshIngest = fromFreshIngest))
     }
 

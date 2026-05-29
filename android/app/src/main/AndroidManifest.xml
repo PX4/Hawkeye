@@ -16,8 +16,17 @@
         android:theme="@style/Theme.HawkeyeAndroid">
 
         <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".HawkeyeActivity"
-            android:exported="true"
+            android:exported="false"
             android:launchMode="singleTop"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode|fontScale|smallestScreenSize|screenLayout|density|layoutDirection">
@@ -25,11 +34,6 @@
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="hawkeye" />
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- Trampoline for VIEW/SEND intents. Plain ComponentActivity, no native code —
