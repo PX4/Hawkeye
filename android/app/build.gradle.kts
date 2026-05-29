@@ -43,6 +43,8 @@ android {
             )
         }
     }
+
+    testOptions { unitTests.all { it.useJUnitPlatform() } }
 }
 
 dependencies {
@@ -52,6 +54,11 @@ dependencies {
     implementation(project(":feature:replay:domain"))
     implementation(project(":feature:replay:data"))
     implementation(project(":feature:replay:presentation"))
+    implementation(project(":core:navigation"))
+    implementation(project(":feature:home:presentation"))
+    implementation(project(":feature:settings:domain"))
+    implementation(project(":feature:settings:data"))
+    implementation(project(":feature:settings:presentation"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
@@ -63,6 +70,15 @@ dependencies {
 
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
+
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.navigation3.ui)
+    implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
+
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.jupiter.engine)
+    testRuntimeOnly(libs.junit.platform.launcher)
+    testImplementation(libs.assertk)
 
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
