@@ -14,9 +14,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.px4.hawkeye.core.designsystem.DronecodeGreen
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
+import com.px4.hawkeye.core.designsystem.glassSurface
 import com.px4.hawkeye.core.presentation.ObserveAsEvents
 import org.koin.androidx.compose.koinViewModel
 
@@ -41,6 +46,8 @@ fun HomeScreen(
     onAction: (HomeAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The looping video + scrim live in the shell (behind the nav bar too); this screen
+    // is just the content layer that renders over them.
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -50,14 +57,24 @@ fun HomeScreen(
     ) {
         Text(
             text = "Hawkeye",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.primary,
+            // Subtle drop shadow for depth/legibility over the video.
+            style = MaterialTheme.typography.headlineLarge.copy(
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.6f),
+                    offset = Offset(0f, 2f),
+                    blurRadius = 6f,
+                ),
+            ),
+            // Fixed bright Dronecode brand green so the title stays legible over the
+            // video in both light and dark themes.
+            color = DronecodeGreen,
             modifier = Modifier.padding(bottom = 8.dp),
         )
         Text(
             text = "Select a mode to get started",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            // Light-on-video regardless of the app's light/dark theme.
+            color = Color.White.copy(alpha = 0.85f),
             modifier = Modifier.padding(bottom = 32.dp),
         )
 
@@ -89,7 +106,8 @@ private fun ModeCard(
         modifier = modifier
             .fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            // Shared theme-aware translucent glass so the background video shows through.
+            containerColor = MaterialTheme.colorScheme.glassSurface,
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
@@ -97,6 +115,7 @@ private fun ModeCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
+                // Theme-driven: the glass card is light in light mode, dark in dark mode.
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(modifier = Modifier.height(6.dp))

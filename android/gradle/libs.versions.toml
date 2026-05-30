@@ -19,6 +19,9 @@ lifecycleViewmodelNav3 = "2.10.0"
 kotlinxSerialization = "1.7.3"
 datastore = "1.1.1"
 
+# Media
+media3 = "1.10.1"
+
 # Async
 kotlinxCoroutines = "1.10.2"
 
@@ -63,6 +66,10 @@ androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compo
 # Serialization + DataStore
 kotlinx-serialization-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-core", version.ref = "kotlinxSerialization" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+
+# Media3 (consumed only by feature:home:presentation)
+androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 
 # Coroutines
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
