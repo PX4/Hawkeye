@@ -11,5 +11,4 @@
     android:layout_height="match_parent"
     app:surface_type="texture_view"
     app:use_controller="false"
-    app:resize_mode="zoom"
-    app:shutter_background_color="#FF0B0E13" />
+    app:resize_mode="zoom" />

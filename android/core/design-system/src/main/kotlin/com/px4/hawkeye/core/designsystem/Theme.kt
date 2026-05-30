@@ -20,7 +20,7 @@ val DronecodeCyan = Color(0xFF2AC4EA)
 // dark glass in the dark scheme. The alpha is baked in here so call sites share one token
 // instead of scattering copy(alpha=...). 0.75f is a touch more opaque than a plain card.
 val ColorScheme.glassSurface: Color
-    get() = surfaceVariant.copy(alpha = 0.75f)
+    get() = surfaceVariant.copy(alpha = HawkeyeAlpha.GLASS)
 
 private val DarkColors = darkColorScheme(
     primary = DronecodeGreen,

@@ -1,6 +1,7 @@
 package com.px4.hawkeye.android
 
 import android.app.Application
+import com.px4.hawkeye.android.di.appModule
 import com.px4.hawkeye.core.navigation.di.navigationModule
 import com.px4.hawkeye.feature.home.presentation.di.homePresentationModule
 import com.px4.hawkeye.feature.replay.data.di.replayDataModule
@@ -16,6 +17,7 @@ class HawkeyeApp : Application() {
         startKoin {
             androidContext(this@HawkeyeApp)
             modules(
+                appModule,
                 navigationModule,
                 homePresentationModule,
                 settingsDataModule,
