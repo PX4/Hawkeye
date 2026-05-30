@@ -12,4 +12,8 @@ dependencies {
     implementation(project(":core:presentation"))
     implementation(project(":core:design-system"))
     implementation(project(":core:navigation"))
+
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.lifecycle.runtime.compose)
 }
