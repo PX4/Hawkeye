@@ -177,8 +177,10 @@ adb push some-flight.ulg /sdcard/Download/
 adb shell am start -a android.intent.action.VIEW \
     -d "file:///sdcard/Download/some-flight.ulg" \
     -t application/octet-stream \
-    com.px4.hawkeye.android/.HawkeyeActivity
+    com.px4.hawkeye.android/.IntentRouterActivity
 ```
+
+`IntentRouterActivity` is the exported trampoline that receives `VIEW`/`SEND` intents; the native renderer (`HawkeyeActivity`) is not exported and is launched internally.
 
 ## Shader Compatibility
 
@@ -239,6 +241,8 @@ Raylib 5.5 is fetched automatically by CMake on the first build. Built ABIs: `ar
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n com.px4.hawkeye.android/.HawkeyeActivity
+adb shell am start -n com.px4.hawkeye.android/.MainActivity
 ```
+
+`MainActivity` is the launcher (the Compose shell). `HawkeyeActivity` is `exported="false"` and is launched from within the app, so it can't be started directly from `adb`.
 

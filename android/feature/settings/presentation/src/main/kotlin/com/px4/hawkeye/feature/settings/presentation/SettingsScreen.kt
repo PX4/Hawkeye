@@ -1,5 +1,6 @@
 package com.px4.hawkeye.feature.settings.presentation
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,9 +16,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.px4.hawkeye.core.designsystem.HawkeyeDimens
+import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 import com.px4.hawkeye.feature.settings.domain.DistanceUnit
 import com.px4.hawkeye.feature.settings.domain.ThemeMode
 import org.koin.androidx.compose.koinViewModel
@@ -38,34 +42,50 @@ fun SettingsScreen(
             .fillMaxWidth()
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(HawkeyeDimens.contentPadding),
     ) {
         Text(
-            text = "Theme",
+            text = stringResource(R.string.settings_theme_header),
             style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(bottom = 8.dp),
+            modifier = Modifier.padding(bottom = HawkeyeDimens.titleSpacing),
         )
         ThemeMode.entries.forEach { mode ->
             OptionRow(
-                label = mode.name.lowercase().replaceFirstChar { it.uppercase() },
+                label = stringResource(mode.labelRes()),
                 selected = state.themeMode == mode,
                 onClick = { onAction(SettingsAction.OnThemeModeSelected(mode)) },
             )
         }
 
         Text(
-            text = "Units",
+            text = stringResource(R.string.settings_units_header),
             style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
+            modifier = Modifier.padding(
+                top = HawkeyeDimens.itemSpacing,
+                bottom = HawkeyeDimens.titleSpacing,
+            ),
         )
         DistanceUnit.entries.forEach { unit ->
             OptionRow(
-                label = unit.name.lowercase().replaceFirstChar { it.uppercase() },
+                label = stringResource(unit.labelRes()),
                 selected = state.distanceUnit == unit,
                 onClick = { onAction(SettingsAction.OnDistanceUnitSelected(unit)) },
             )
         }
     }
+}
+
+@StringRes
+private fun ThemeMode.labelRes(): Int = when (this) {
+    ThemeMode.SYSTEM -> R.string.settings_theme_system
+    ThemeMode.LIGHT -> R.string.settings_theme_light
+    ThemeMode.DARK -> R.string.settings_theme_dark
+}
+
+@StringRes
+private fun DistanceUnit.labelRes(): Int = when (this) {
+    DistanceUnit.METRIC -> R.string.settings_unit_metric
+    DistanceUnit.IMPERIAL -> R.string.settings_unit_imperial
 }
 
 @Composable
@@ -83,7 +103,7 @@ private fun OptionRow(
                 onClick = onClick,
                 role = Role.RadioButton,
             )
-            .padding(vertical = 4.dp),
+            .padding(vertical = HawkeyeDimens.rowVerticalPadding),
     ) {
         RadioButton(
             selected = selected,
@@ -91,7 +111,18 @@ private fun OptionRow(
         )
         Text(
             text = label,
-            modifier = Modifier.padding(start = 8.dp),
+            modifier = Modifier.padding(start = HawkeyeDimens.inlineSpacing),
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun SettingsScreenPreview() {
+    HawkeyeTheme {
+        SettingsScreen(
+            state = SettingsState(themeMode = ThemeMode.DARK, distanceUnit = DistanceUnit.IMPERIAL),
+            onAction = {},
         )
     }
 }

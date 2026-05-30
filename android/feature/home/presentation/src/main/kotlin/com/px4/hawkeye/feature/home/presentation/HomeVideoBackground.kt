@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.viewinterop.AndroidView
@@ -41,6 +42,8 @@ fun HomeVideoBackground(modifier: Modifier = Modifier) {
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    // Theme-aware shutter color shown until the first frame decodes (avoids a flash).
+    val shutterColor = MaterialTheme.colorScheme.background.toArgb()
 
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -78,5 +81,6 @@ fun HomeVideoBackground(modifier: Modifier = Modifier) {
             (LayoutInflater.from(ctx).inflate(R.layout.home_video_player, null) as PlayerView)
                 .apply { player = exoPlayer }
         },
+        update = { it.setShutterBackgroundColor(shutterColor) },
     )
 }
