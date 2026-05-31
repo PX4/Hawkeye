@@ -2,8 +2,10 @@ package com.px4.hawkeye.android.render.transport
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -15,6 +17,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import com.px4.hawkeye.android.R
@@ -52,6 +56,18 @@ fun TransportScreen(
     // Nothing until a log is loaded; the host window collapses to zero height.
     if (!state.isActive) return
 
+    // Inset the interactive controls out of the horizontal safe-area dead zones (the camera
+    // cutout and the gesture-nav back-swipe strips), applied SYMMETRICALLY — the same gap on
+    // both edges — so the play/pause and speed buttons sit equidistant from their respective
+    // edges even when a cutout makes one side's inset larger than the other. The Surface
+    // below stays full width so the bar still reads edge to edge.
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val safe = WindowInsets.safeContent
+    val edgeInset = with(density) {
+        maxOf(safe.getLeft(this, layoutDirection), safe.getRight(this, layoutDirection)).toDp()
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.glassSurface,
@@ -59,6 +75,7 @@ fun TransportScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = edgeInset)
                 .padding(
                     horizontal = HawkeyeDimens.contentPadding,
                     vertical = HawkeyeDimens.rowVerticalPadding,

@@ -16,4 +16,6 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.compose.material3.adaptive)
+    implementation(libs.androidx.window)
 }
