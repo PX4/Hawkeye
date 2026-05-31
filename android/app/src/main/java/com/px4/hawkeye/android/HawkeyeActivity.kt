@@ -138,6 +138,9 @@ class HawkeyeActivity :
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+            // Edge-to-edge: NO_LIMITS + cutout-mode ALWAYS (set below) span the bar the full
+            // display width, under the cutout. NOT_FOCUSABLE leaves Back to the renderer;
+            // NOT_TOUCH_MODAL lets camera gestures below the bar reach raylib.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,

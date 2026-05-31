@@ -13,6 +13,7 @@ android/app/.cxx/
 android/build/
 android/.idea/workspace.xml
 android/.claude/
+android/docs/superpowers/
 android/.idea/*
 
 # Docs site

@@ -1,5 +1,6 @@
 package com.px4.hawkeye.android.shell
 
+import android.content.res.Configuration
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
@@ -20,11 +21,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
@@ -49,6 +52,8 @@ fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
     val koin = getKoin()
     val installers = remember { koin.getAll<EntryProviderInstaller>() }
 
+    val navLayoutType = navSuiteLayoutType(LocalConfiguration.current.orientation)
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // Looping video (+ a legibility scrim) behind the entire Home screen, including the
         // nav bar. Shown only while Home is the selected tab AND at the root of its back
@@ -63,6 +68,7 @@ fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
 
         NavigationSuiteScaffold(
             modifier = Modifier.fillMaxSize(),
+            layoutType = navLayoutType,
             containerColor = Color.Transparent,
             navigationSuiteColors = NavigationSuiteDefaults.colors(
                 navigationBarContainerColor = MaterialTheme.colorScheme.glassSurface,
@@ -119,6 +125,18 @@ fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
         }
     }
 }
+
+/**
+ * Pick the navigation-suite layout for the current [orientation]. In landscape a bottom
+ * navigation bar eats scarce vertical space and clips content on short phone viewports, so
+ * use a side navigation rail there; keep the bottom bar in portrait where height is plentiful.
+ */
+internal fun navSuiteLayoutType(orientation: Int): NavigationSuiteType =
+    if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        NavigationSuiteType.NavigationRail
+    } else {
+        NavigationSuiteType.NavigationBar
+    }
 
 @StringRes
 private fun TopLevelDestination.labelRes(): Int = when (this) {

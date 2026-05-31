@@ -83,5 +83,8 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    // Pin window-core to the version the app runs on so the layout test can use the
+    // modern WindowSizeClass(Int, Int) constructor (the adaptive lib only pulls 1.3.0).
+    androidTestImplementation(libs.androidx.window)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

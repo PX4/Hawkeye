@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome layer for Android 13+ themed ("Material You") icons. A single-colour eye
+     silhouette (the system applies the theme tint); the iris is cut out (evenOdd) with a
+     solid pupil, mirroring the brand eye. Scaled into the adaptive safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.60"
+        android:scaleY="0.60">
+        <path
+            android:fillColor="#000000"
+            android:fillType="evenOdd"
+            android:pathData="M256 160C180 160 120 220 120 256C120 292 180 352 256 352C332 352 392 292 392 256C392 220 332 160 256 160ZM256 312C225 312 200 287 200 256C200 225 225 200 256 200C287 200 312 225 312 256C312 287 287 312 256 312Z" />
+        <path
+            android:fillColor="#000000"
+            android:pathData="M241,256a15,15 0 1,0 30,0a15,15 0 1,0 -30,0Z" />
+    </group>
+</vector>
