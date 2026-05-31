@@ -6,4 +6,5 @@
     <string name="home_replay_description">Load a ULog file and replay recorded flight data</string>
     <string name="home_connect_title">Connect to a simulator</string>
     <string name="home_connect_description">Stream live telemetry from PX4 SITL or a real vehicle</string>
+    <string name="home_recent_header">Recent flights</string>
 </resources>

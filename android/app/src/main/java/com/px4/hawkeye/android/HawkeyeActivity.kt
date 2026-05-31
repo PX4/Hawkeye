@@ -2,10 +2,15 @@ package com.px4.hawkeye.android
 
 import android.app.NativeActivity
 import android.graphics.Color
+import android.graphics.PixelFormat
+import android.os.Build
 import android.os.Bundle
-import android.view.ViewGroup
-import android.widget.FrameLayout
+import android.view.Gravity
+import android.view.WindowManager
 import androidx.compose.ui.platform.ComposeView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -19,29 +24,32 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.px4.hawkeye.android.render.RenderSession
+import com.px4.hawkeye.android.render.NativeReplayController
+import com.px4.hawkeye.android.render.transport.TransportRoot
+import com.px4.hawkeye.android.render.transport.TransportViewModel
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
-import com.px4.hawkeye.feature.replay.presentation.ReplayAction
-import com.px4.hawkeye.feature.replay.presentation.ReplayRoot
-import com.px4.hawkeye.feature.replay.presentation.ReplayViewModel
-import org.koin.android.ext.android.getKoin
 
 /**
- * The renderer host. C/raylib owns the GL surface; this class only adds a Compose
- * overlay for the "No file loaded" empty-state dialog.
+ * The renderer host. C/raylib owns the GL surface; this class adds a Compose overlay for
+ * the touch transport controls (play/pause, scrub, speed), which drive the native engine
+ * through [NativeReplayController]'s JNI surface.
  *
- * VIEW/SEND intents are NOT handled here — they go through [IntentRouterActivity], which
- * does the file ingest and then starts this activity with no intent data. That isolation
- * is what fixes the `DrawMesh+76` crash: cold-launching a NativeActivity with a VIEW
- * intent races Raylib's `InitGraphicsDevice` against the system's
- * `screenOrientation="landscape"` enforcement, leaving the EGL context in a state where
- * `glCreateShader`/`glGenTextures` return 0 and the materials end up with `shader.locs = NULL`.
+ * Because raylib owns the whole NativeActivity window surface, an inline overlay would be
+ * clobbered by GL buffer swaps. Instead the overlay lives in a dedicated full-width
+ * `WindowManager` panel window layered above the renderer (see [attachTransportOverlay]).
+ * Creating that window ourselves lets us set `layoutInDisplayCutoutMode = ALWAYS` and
+ * `MATCH_PARENT` width up front, so the bar spans edge to edge under the cutout — which a
+ * Compose `Popup` window cannot do.
  *
- * NativeActivity extends [android.app.Activity], not [androidx.activity.ComponentActivity],
- * so the lifecycle / ViewModelStore / SavedStateRegistry owners that Compose + Koin need
- * are implemented by hand — same call ordering ComponentActivity uses internally
- * (attach/restore before super.onCreate, ON_PAUSE/STOP/DESTROY before super,
- * ON_START/RESUME after super).
+ * Runs in its own `:renderer` process (manifest) and hard-exits on teardown ([onDestroy]):
+ * raylib's Android render loop parks in `ALooper_pollAll` once the window is torn down and
+ * never returns, so a graceful destroy would block the process main thread. Halting keeps
+ * the Compose shell responsive and guarantees a clean raylib cold start per replay; it also
+ * tears down the panel window with the process.
+ *
+ * `NativeActivity` extends bare `android.app.Activity`, so the Lifecycle / ViewModelStore /
+ * SavedStateRegistry owners that Compose needs are implemented by hand. Koin is not started
+ * in `:renderer`, so the ViewModel is built with a plain [ViewModelProvider.Factory].
  */
 class HawkeyeActivity :
     NativeActivity(),
@@ -59,21 +67,14 @@ class HawkeyeActivity :
     override val savedStateRegistry: SavedStateRegistry
         get() = savedStateRegistryController.savedStateRegistry
 
-    /**
-     * Koin's `by viewModel()` is restricted to `ComponentActivity` / `Fragment`, and
-     * `NativeActivity` extends bare `android.app.Activity`. We get the same scoping
-     * behavior by going through `ViewModelProvider` directly with a factory that
-     * delegates to Koin — the resulting VM lives in [viewModelStoreInstance], so
-     * `viewModelStoreInstance.clear()` in [onDestroy] fires `ViewModel.onCleared()`
-     * and `viewModelScope` is cancelled instead of leaking past the activity.
-     */
-    private val koinViewModelFactory = object : ViewModelProvider.Factory {
+    private val transportViewModelFactory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            getKoin().get(clazz = modelClass.kotlin) as T
+            TransportViewModel(NativeReplayController()) as T
     }
 
-    private lateinit var viewModel: ReplayViewModel
+    private lateinit var viewModel: TransportViewModel
+    private var transportOverlay: ComposeView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         savedStateRegistryController.performAttach()
@@ -81,23 +82,76 @@ class HawkeyeActivity :
         super.onCreate(savedInstanceState)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
 
-        viewModel = ViewModelProvider(this, koinViewModelFactory)[ReplayViewModel::class.java]
-        attachComposeOverlay()
-        val session = RenderSession.fromExtras(
-            mapOf(
-                RenderSession.KEY_MODE to intent?.getStringExtra(RenderSession.KEY_MODE),
-                RenderSession.KEY_PATH to intent?.getStringExtra(RenderSession.KEY_PATH),
-                RenderSession.KEY_HOST to intent?.getStringExtra(RenderSession.KEY_HOST),
-                RenderSession.KEY_PORT to intent?.getStringExtra(RenderSession.KEY_PORT),
-            )
-        )
-        // Plan 1: only the legacy inbox/trampoline path drives playback. A non-null
-        // session is plumbed here so Plan 2 (Replay.filePath) and Plan 3 (Live) can act
-        // on it; for now Replay still relies on the inbox sentinel and Live is a no-op.
-        val fromFreshIngest =
-            session is RenderSession.Replay ||
-                intent?.getBooleanExtra(EXTRA_FROM_TRAMPOLINE, false) == true
-        viewModel.onAction(ReplayAction.OnAppStarted(fromFreshIngest = fromFreshIngest))
+        goEdgeToEdge()
+        viewModel = ViewModelProvider(this, transportViewModelFactory)[TransportViewModel::class.java]
+    }
+
+    /** Draw under the system bars + cutout and hide the bars for a clean fullscreen replay. */
+    private fun goEdgeToEdge() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        hideSystemBars()
+    }
+
+    private fun hideSystemBars() {
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            // raylib/NativeActivity resets system UI on focus changes; re-assert immersive.
+            hideSystemBars()
+            // The window is attached and has a valid token by now, so the panel can be added.
+            attachTransportOverlay()
+        }
+    }
+
+    /**
+     * Adds the transport overlay as a full-width sub-window above the renderer. Full width +
+     * cutout-always (set at creation) make the bar reach both edges; NOT_FOCUSABLE leaves
+     * Back to the renderer, NOT_TOUCH_MODAL + a wrap-height top window let camera gestures
+     * below the bar fall through to the GL surface.
+     */
+    private fun attachTransportOverlay() {
+        if (transportOverlay != null) return
+        val composeView = ComposeView(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            setViewTreeLifecycleOwner(this@HawkeyeActivity)
+            setViewTreeViewModelStoreOwner(this@HawkeyeActivity)
+            setViewTreeSavedStateRegistryOwner(this@HawkeyeActivity)
+            setContent {
+                HawkeyeTheme {
+                    TransportRoot(viewModel = viewModel)
+                }
+            }
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            token = window.decorView.windowToken
+            gravity = Gravity.TOP or Gravity.START
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
+        windowManager.addView(composeView, params)
+        transportOverlay = composeView
     }
 
     override fun onStart() {
@@ -126,40 +180,9 @@ class HawkeyeActivity :
     }
 
     override fun onDestroy() {
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
-        if (!isChangingConfigurations) viewModelStoreInstance.clear()
-        super.onDestroy()
-    }
-
-    private fun attachComposeOverlay() {
-        val composeView = ComposeView(this).apply { setBackgroundColor(Color.TRANSPARENT) }
-        // Owners must be set before addContentView — the Compose recomposer binds to
-        // ViewTreeLifecycleOwner at attach time.
-        composeView.setViewTreeLifecycleOwner(this)
-        composeView.setViewTreeViewModelStoreOwner(this)
-        composeView.setViewTreeSavedStateRegistryOwner(this)
-
-        composeView.setContent {
-            HawkeyeTheme {
-                ReplayRoot(viewModel = viewModel)
-            }
-        }
-
-        window.addContentView(
-            composeView,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
-    }
-
-    companion object {
-        /**
-         * Set by `IntentRouterActivity` on the intent it uses to launch us, so we
-         * know the inbox holds a file the user just explicitly opened (and we
-         * shouldn't wipe it on cold-launch like we do for a plain icon tap).
-         */
-        const val EXTRA_FROM_TRAMPOLINE = "com.px4.hawkeye.android.from_trampoline"
+        // Hard-exit the dedicated renderer process rather than block the main thread joining
+        // the non-terminating native render loop. Halting skips graceful teardown; the OS
+        // reclaims the process (and the panel window). Preserves the Plan 2a ANR/crash fix.
+        Runtime.getRuntime().halt(0)
     }
 }

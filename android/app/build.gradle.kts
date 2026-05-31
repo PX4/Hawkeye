@@ -51,7 +51,6 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:presentation"))
     implementation(project(":core:design-system"))
-    implementation(project(":feature:replay:domain"))
     implementation(project(":feature:replay:data"))
     implementation(project(":feature:replay:presentation"))
     implementation(project(":core:navigation"))
@@ -80,6 +79,9 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.assertk)
 
+    androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

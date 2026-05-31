@@ -1,0 +1,129 @@
+package com.px4.hawkeye.feature.replay.data
+
+import assertk.assertThat
+import assertk.assertions.containsExactly
+import assertk.assertions.isEqualTo
+import assertk.assertions.isNotNull
+import assertk.assertions.isNull
+import com.px4.hawkeye.core.domain.DataError
+import com.px4.hawkeye.core.domain.LibraryEntry
+import com.px4.hawkeye.core.domain.Result
+import com.px4.hawkeye.feature.replay.data.db.LibraryEntryEntity
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class RoomReplayLibraryRepositoryTest {
+
+    private val dispatcher = UnconfinedTestDispatcher()
+    private lateinit var dao: FakeReplayLibraryDao
+    private lateinit var files: FakeReplayFileManager
+
+    @BeforeEach fun setUp() {
+        dao = FakeReplayLibraryDao()
+        files = FakeReplayFileManager()
+    }
+
+    private fun repository() = RoomReplayLibraryRepository(
+        dao = dao,
+        fileManager = files,
+        ioDispatcher = dispatcher,
+        clock = { 1_000L },
+        idGenerator = { "fixed-id" },
+    )
+
+    @Test
+    fun `import writes the payload and inserts a metadata row`() = runTest {
+        files.importResult = Result.Success(4096L)
+        files.displayName = "log.ulg"
+
+        val result = repository().import("content://doc")
+
+        assertThat(result).isEqualTo(
+            Result.Success(LibraryEntry("fixed-id", "log.ulg", 4096L, 1_000L)),
+        )
+        assertThat(files.importedFileNames).containsExactly("fixed-id.ulg")
+        assertThat(dao.getById("fixed-id")).isNotNull()
+    }
+
+    @Test
+    fun `import returns the write error and inserts nothing`() = runTest {
+        files.importResult = Result.Error(DataError.Local.DISK_FULL)
+
+        val result = repository().import("content://doc")
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.DISK_FULL))
+        assertThat(dao.getById("fixed-id")).isNull()
+    }
+
+    @Test
+    fun `import maps a DAO failure to an error and removes the orphaned payload`() = runTest {
+        dao.insertShouldThrow = RuntimeException("db locked")
+
+        val result = repository().import("content://doc")
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.UNKNOWN))
+        assertThat(files.deletedFileNames).containsExactly("fixed-id.ulg")
+    }
+
+    @Test
+    fun `observeLibrary maps rows newest first`() = runTest {
+        dao.seed(
+            entity("a", importedAt = 10L),
+            entity("b", importedAt = 30L),
+            entity("c", importedAt = 20L),
+        )
+
+        val entries = repository().observeLibrary().first()
+
+        assertThat(entries.map { it.id }).containsExactly("b", "c", "a")
+    }
+
+    @Test
+    fun `delete removes the payload and the row`() = runTest {
+        dao.seed(entity("a"))
+
+        val result = repository().delete("a")
+
+        assertThat(result).isEqualTo(Result.Success(Unit))
+        assertThat(files.deletedFileNames).containsExactly("a.ulg")
+        assertThat(dao.getById("a")).isNull()
+    }
+
+    @Test
+    fun `delete returns NOT_FOUND for an unknown id`() = runTest {
+        val result = repository().delete("missing")
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
+        assertThat(files.deletedFileNames).isEqualTo(emptyList())
+    }
+
+    @Test
+    fun `stageForPlayback stages the entry's payload`() = runTest {
+        dao.seed(entity("a"))
+
+        val result = repository().stageForPlayback("a")
+
+        assertThat(result).isEqualTo(Result.Success(Unit))
+        assertThat(files.stagedFileNames).containsExactly("a.ulg")
+    }
+
+    @Test
+    fun `stageForPlayback returns NOT_FOUND for an unknown id`() = runTest {
+        val result = repository().stageForPlayback("missing")
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
+    }
+
+    private fun entity(id: String, importedAt: Long = 0L) = LibraryEntryEntity(
+        id = id,
+        displayName = "$id.ulg",
+        sizeBytes = 1L,
+        importedAtMillis = importedAt,
+        fileName = "$id.ulg",
+    )
+}
