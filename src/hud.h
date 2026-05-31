@@ -38,6 +38,7 @@ typedef struct {
     int pinned_count;
     bool show_help;
     bool is_replay;     // true when data source is ULog replay (affects layout)
+    bool show_transport; // false hides the transport sub-bar (Android drives transport from a Compose overlay)
     bool show_yaw;      // Y key: swap HDG for YAW display
     Font font_value;    // JetBrains Mono for telemetry numbers
     Font font_label;    // Inter for labels and status text

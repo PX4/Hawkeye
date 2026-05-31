@@ -22,6 +22,7 @@ set(HAWKEYE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../src")
 
 add_library(hawkeye SHARED
     android_main.c
+    replay_jni.c
     ${HAWKEYE_SRC}/scene.c
     ${HAWKEYE_SRC}/vehicle.c
     ${HAWKEYE_SRC}/theme.c

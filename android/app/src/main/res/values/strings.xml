@@ -6,9 +6,11 @@
     <string name="shell_nav_settings">Settings</string>
 
     <!-- Coming-soon placeholder destinations -->
-    <string name="shell_replay_title">Replay</string>
-    <string name="shell_replay_coming_soon">The replay library and file picker are coming in Plan 2.</string>
     <string name="shell_live_title">Live / SITL</string>
     <string name="shell_live_coming_soon">Connecting to a simulator is coming in Plan 3.</string>
     <string name="shell_back">Back</string>
+
+    <!-- Replay transport overlay -->
+    <string name="transport_play">Play</string>
+    <string name="transport_pause">Pause</string>
 </resources>

@@ -11,5 +11,5 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:presentation"))
     implementation(project(":core:design-system"))
-    implementation(project(":feature:replay:domain"))
+    implementation(project(":core:navigation"))
 }

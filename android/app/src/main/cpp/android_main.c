@@ -5,6 +5,7 @@
 #include "vehicle.h"
 #include "data_source.h"
 #include "hud.h"
+#include "replay_control.h"
 #include <android/asset_manager.h>
 #include <android/input.h>
 #include <android/keycodes.h>
@@ -359,10 +360,10 @@ static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
     }
 }
 
-// HawkeyeActivity (Kotlin) writes inbound .ulg files via .tmp + atomic rename to
+// The library repository (Kotlin) stages a .ulg via .tmp + atomic rename to
 // inbox/current.ulg, then writes a fresh millis token into inbox/.ready. We poll
 // the sentinel's *contents* (not stat-mtime — f2fs has 1-second granularity and
-// would coalesce two shares in the same wall second) once per second and reload
+// would coalesce two stages in the same wall second) once per second and reload
 // the replay when the token changes.
 static data_source_t g_ds;
 static bool          g_ds_active = false;
@@ -391,7 +392,7 @@ static long long read_ready_token(const char *path) {
 }
 
 static int try_load_inbox_ulog(vehicle_t *vehicle) {
-    // Throttle to 1 Hz. Sentinel changes are user-driven (intent shares), so
+    // Throttle to 1 Hz. Sentinel changes are user-driven (library playback), so
     // a per-frame stat()/read() at 60 Hz is wasted work — and since we read
     // the sentinel's contents (not its mtime), an up-to-1-second detection
     // delay is the only cost.
@@ -415,7 +416,7 @@ static int try_load_inbox_ulog(vehicle_t *vehicle) {
         __android_log_print(ANDROID_LOG_ERROR, "Hawkeye",
             "data_source_ulog_create(%s) failed: %d", ulg, rc);
         // Mark the bad token consumed so we don't retry every second; the
-        // user must re-share to trigger another attempt.
+        // user must re-open the log to trigger another attempt.
         g_last_ready_token = token;
         return 0;
     }
@@ -493,6 +494,9 @@ int main(int argc, char *argv[]) {
     vehicle_init(&vehicle, MODEL_QUADROTOR, scene.lighting_shader);
 
     hud_init(&g_hud);
+    // The transport bar is driven by a Compose overlay on Android, so suppress the
+    // native one (keeps the rest of the HUD: instruments, telemetry, annunciators).
+    g_hud.show_transport = false;
     // Bump HUD scale on mobile so values/labels meet M3 readability floors
     // (~42 px body, ~33 px label at this DPI). Desktop/WASM leave this at 1.0.
     g_hud.scale_mul = 1.5f;
@@ -512,12 +516,15 @@ int main(int argc, char *argv[]) {
     scene.camera.target = orbit_target;
     g_last_vehicle_pos  = vehicle.position;
 
-    // Pick up a .ulg already delivered by an intent before native main() ran.
+    // Pick up a .ulg already staged into the inbox before native main() ran.
     try_load_inbox_ulog(&vehicle);
 
     while (!WindowShouldClose()) {
-        // Catch re-share into the running app (HawkeyeActivity.onNewIntent).
+        // Catch a new log staged while the renderer is already running.
         try_load_inbox_ulog(&vehicle);
+
+        // Apply pending transport requests from the Compose overlay (JVM thread).
+        replay_control_apply(&g_ds, g_ds_active);
 
         if (g_ds_active) {
             data_source_poll(&g_ds, GetFrameTime());
@@ -534,6 +541,9 @@ int main(int argc, char *argv[]) {
                 g_last_vehicle_pos = vehicle.position;
             }
         }
+
+        // Publish playback status for the Compose overlay to read via JNI.
+        replay_control_publish(&g_ds, g_ds_active);
 
         handle_touch(&scene.camera, &orbit_target,
                      &prev_count, &prev_touch,

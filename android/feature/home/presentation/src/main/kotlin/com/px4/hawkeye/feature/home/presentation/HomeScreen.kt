@@ -1,5 +1,7 @@
 package com.px4.hawkeye.feature.home.presentation
 
+import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -26,20 +29,28 @@ import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 import com.px4.hawkeye.core.designsystem.MediaTitleShadow
 import com.px4.hawkeye.core.designsystem.glassSurface
 import com.px4.hawkeye.core.presentation.ObserveAsEvents
+import com.px4.hawkeye.core.presentation.ReplayPlaybackLauncher
+import com.px4.hawkeye.core.presentation.asString
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 @Composable
 fun HomeRoot(
     onNavigateToReplay: () -> Unit,
     onNavigateToLive: () -> Unit,
     viewModel: HomeViewModel = koinViewModel(),
+    playbackLauncher: ReplayPlaybackLauncher = koinInject(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {
             HomeEvent.NavigateToReplay -> onNavigateToReplay()
             HomeEvent.NavigateToLive -> onNavigateToLive()
+            is HomeEvent.PlayRecent -> playbackLauncher.launch(context, event.entryId)
+            is HomeEvent.ShowError ->
+                Toast.makeText(context, event.text.asString(context), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -91,6 +102,66 @@ fun HomeScreen(
             description = stringResource(R.string.home_connect_description),
             onClick = { onAction(HomeAction.OnConnectClicked) },
         )
+
+        if (state.recents.isNotEmpty()) {
+            RecentFlights(
+                recents = state.recents,
+                onRecentClick = { onAction(HomeAction.OnRecentClicked(it)) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecentFlights(
+    recents: List<RecentFlightUi>,
+    onRecentClick: (String) -> Unit,
+) {
+    Spacer(modifier = Modifier.height(HawkeyeDimens.sectionSpacing))
+    Text(
+        text = stringResource(R.string.home_recent_header),
+        style = MaterialTheme.typography.titleMedium,
+        // Over the video, like the subtitle.
+        color = Color.White.copy(alpha = HawkeyeAlpha.ON_MEDIA_SECONDARY),
+        modifier = Modifier.padding(bottom = HawkeyeDimens.titleSpacing),
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.glassSurface,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = HawkeyeDimens.cardElevation),
+    ) {
+        Column {
+            recents.forEach { recent ->
+                RecentRow(recent = recent, onClick = { onRecentClick(recent.id) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentRow(
+    recent: RecentFlightUi,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(HawkeyeDimens.cardPadding),
+    ) {
+        Text(
+            text = recent.displayName,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = recent.subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = HawkeyeAlpha.CARD_CAPTION),
+            modifier = Modifier.padding(top = HawkeyeDimens.captionSpacing),
+        )
     }
 }
 
@@ -130,6 +201,14 @@ private fun ModeCard(
 @Composable
 private fun HomeScreenPreview() {
     HawkeyeTheme(darkTheme = true) {
-        HomeScreen(state = HomeState(), onAction = {})
+        HomeScreen(
+            state = HomeState(
+                recents = listOf(
+                    RecentFlightUi("1", "flight_log.ulg", "May 30, 2026"),
+                    RecentFlightUi("2", "sitl_test.ulg", "May 27, 2026"),
+                ),
+            ),
+            onAction = {},
+        )
     }
 }

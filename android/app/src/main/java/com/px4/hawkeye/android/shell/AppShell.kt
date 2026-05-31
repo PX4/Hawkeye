@@ -51,9 +51,12 @@ fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // Looping video (+ a legibility scrim) behind the entire Home screen, including the
-        // nav bar, shown only while the Home tab is active. The translucent nav bar and
-        // cards let it show through. Released when leaving the Home tab.
-        if (backStacks.selected == TopLevelDestination.HOME) {
+        // nav bar. Shown only while Home is the selected tab AND at the root of its back
+        // stack: navigating deeper (Replay/Live render over an opaque surface) releases the
+        // ExoPlayer via HomeVideoBackground's DisposableEffect instead of decoding unseen.
+        if (backStacks.selected == TopLevelDestination.HOME &&
+            backStacks.current.lastOrNull() == HomeKey
+        ) {
             HomeVideoBackground(modifier = Modifier.matchParentSize())
             Box(modifier = Modifier.matchParentSize().background(ScrimColor))
         }
@@ -101,13 +104,8 @@ fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
                             onNavigateToLive = { backStacks.push(LiveKey) },
                         )
                     }
-                    addEntryProvider(ReplayKey::class, { it.toString() }) {
-                        ComingSoonScreen(
-                            titleRes = R.string.shell_replay_title,
-                            messageRes = R.string.shell_replay_coming_soon,
-                            onBack = { backStacks.pop() },
-                        )
-                    }
+                    // Replay's NavEntry is contributed by the feature's EntryProviderInstaller
+                    // (collected into `installers` below). Live is still a placeholder.
                     addEntryProvider(LiveKey::class, { it.toString() }) {
                         ComingSoonScreen(
                             titleRes = R.string.shell_live_title,

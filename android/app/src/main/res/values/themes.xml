@@ -3,13 +3,4 @@
          chrome (dialogs) renders through Compose Material 3, which provides its own
          theming. This activity theme only styles system bars and the brief first frame. -->
     <style name="Theme.HawkeyeAndroid" parent="@android:style/Theme.Material.NoActionBar" />
-
-    <!-- IntentRouterActivity sits over whatever foreground task launched it (share sheet,
-         Files app, HawkeyeActivity itself). Translucent + transparent background so only
-         the Compose AlertDialog is visible while the trampoline is alive. -->
-    <style name="Theme.HawkeyeTrampoline" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@android:color/transparent</item>
-        <item name="android:windowIsTranslucent">true</item>
-        <item name="android:windowAnimationStyle">@null</item>
-    </style>
 </resources>

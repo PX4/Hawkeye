@@ -1,17 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="replay_prompt_open_title">Open ULog?</string>
-    <string name="replay_prompt_open">Open</string>
-    <string name="replay_prompt_cancel">Cancel</string>
-    <string name="replay_prompt_from_prefix">From: %1$s</string>
-    <!-- Confirm-open dialog body. Two placeholders so translators can reorder the
-         filename and source (and the separator between them) without code changes. -->
-    <string name="replay_prompt_open_message">%1$s\nFrom: %2$s</string>
-    <string name="replay_prompt_no_file_title">No file loaded</string>
-    <string name="replay_prompt_no_file_message">The application will do nothing. Share or open a .ulg file from another app to start a replay.</string>
-    <string name="replay_prompt_ok">OK</string>
-    <string name="replay_ingest_success">Loaded ULog (%1$d bytes)</string>
-    <string name="replay_error_open_failed">Could not open the shared file.</string>
-    <string name="replay_error_write_failed">Could not save the file. Try freeing up some storage.</string>
-    <string name="replay_error_unknown">Could not load the file.</string>
+    <string name="replay_library_title">Replay library</string>
+    <string name="replay_open_file">Open file</string>
+
+    <string name="replay_empty_title">No logs yet</string>
+    <string name="replay_empty_message">Import a .ulg flight log to replay it. Logs you import are kept here.</string>
+
+    <!-- Row caption: size and import date. Two placeholders so translators can reorder. -->
+    <string name="replay_entry_meta">%1$s · %2$s</string>
+
+    <string name="replay_delete_title">Delete log?</string>
+    <string name="replay_delete_message">Remove \"%1$s\" from the library? This cannot be undone.</string>
+    <string name="replay_delete_confirm">Delete</string>
+    <string name="replay_delete_cancel">Cancel</string>
 </resources>
