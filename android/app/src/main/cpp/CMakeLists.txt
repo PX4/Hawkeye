@@ -20,6 +20,9 @@ FetchContent_MakeAvailable(raylib)
 # CMakeLists.txt lives at android/app/src/main/cpp/ — five levels up is the repo root
 set(HAWKEYE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../src")
 
+# MAVLink c_library_v2 (header-only, git submodule) -- repo root is five levels up.
+set(MAVLINK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../lib/c_library_v2")
+
 add_library(hawkeye SHARED
     android_main.c
     replay_jni.c
@@ -45,12 +48,18 @@ add_library(hawkeye SHARED
     ${HAWKEYE_SRC}/replay_markers.c
     ${HAWKEYE_SRC}/replay_conflict.c
     ${HAWKEYE_SRC}/ui_marker_input.c
+    ${HAWKEYE_SRC}/mavlink_receiver.c
+    ${HAWKEYE_SRC}/data_source_mavlink.c
 )
 
 target_include_directories(hawkeye PRIVATE
     ${HAWKEYE_SRC}
+    ${MAVLINK_DIR}
+    ${MAVLINK_DIR}/common
     ${ANDROID_NDK}/sources/android/native_app_glue
 )
+
+target_compile_definitions(hawkeye PRIVATE MAVLINK_COMM_NUM_BUFFERS=16)
 
 target_link_libraries(hawkeye
     raylib
