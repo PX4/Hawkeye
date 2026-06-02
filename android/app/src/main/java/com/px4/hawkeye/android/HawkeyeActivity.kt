@@ -78,8 +78,10 @@ class HawkeyeActivity :
     private lateinit var viewModel: TransportViewModel
     private var transportOverlay: ComposeView? = null
 
-    // Read once from the launch Intent. Safe to cache: onDestroy halts the :renderer
-    // process, so every session is a cold start with a fresh Intent (no singleTop reuse).
+    // Read once from the launch Intent. Safe to cache: the activity uses the default
+    // (standard) launch mode, so each launch is a brand-new instance with a fresh Intent;
+    // onDestroy then halts the :renderer process. There is no in-place reuse (no
+    // singleTop/onNewIntent path) that could leave this value stale.
     private val isLiveMode: Boolean by lazy {
         intent?.getStringExtra(RendererLauncher.EXTRA_MODE) == RenderMode.LIVE.name
     }

@@ -530,16 +530,20 @@ int main(int argc, char *argv[]) {
         // >= so an (unreachable) tie favors the explicit live intent; in practice the two
         // tokens come from distinct user actions stamped at different millis.
         if (live_token > 0 && live_token >= ready_token) {
+            // The user explicitly tapped Connect, so commit to live mode regardless of bind
+            // outcome. We never silently fall back to replay: the staged .ulg wasn't what the
+            // user asked for, and the app suppresses the Compose transport overlay for live
+            // sessions (HawkeyeActivity.isLiveMode), so a replay fallback would render with no
+            // transport controls at all. On bind failure we stay in the live "Waiting…" state.
+            g_live_mode = true;
             if (data_source_mavlink_create(&g_ds, HAWKEYE_MAVLINK_PORT, /*channel=*/0, false) == 0) {
                 g_ds_active = true;
-                g_live_mode = true;
                 __android_log_print(ANDROID_LOG_INFO, "Hawkeye",
                     "live MAVLink: listening on UDP %d", HAWKEYE_MAVLINK_PORT);
             } else {
-                // Bind failed: fall through to replay (the inbox load below runs because
-                // g_live_mode stayed false) rather than show a dead live session.
                 __android_log_print(ANDROID_LOG_ERROR, "Hawkeye",
-                    "live MAVLink: failed to bind UDP %d", HAWKEYE_MAVLINK_PORT);
+                    "live MAVLink: failed to bind UDP %d (staying in live waiting state)",
+                    HAWKEYE_MAVLINK_PORT);
             }
         }
     }
