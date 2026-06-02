@@ -5,12 +5,12 @@
     <string name="shell_nav_home">Home</string>
     <string name="shell_nav_settings">Settings</string>
 
-    <!-- Coming-soon placeholder destinations -->
-    <string name="shell_live_title">Live / SITL</string>
-    <string name="shell_live_coming_soon">Connecting to a simulator is coming in Plan 3.</string>
-    <string name="shell_back">Back</string>
-
     <!-- Replay transport overlay -->
     <string name="transport_play">Play</string>
     <string name="transport_pause">Pause</string>
+
+    <!-- Live status overlay -->
+    <string name="live_status_waiting">Waiting for MAVLink on %1$s</string>
+    <string name="live_status_connected">Connected — sysid %1$d</string>
+    <string name="live_status_lost">Connection lost</string>
 </resources>

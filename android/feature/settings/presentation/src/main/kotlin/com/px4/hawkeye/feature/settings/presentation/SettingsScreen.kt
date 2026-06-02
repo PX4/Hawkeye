@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,10 +20,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.px4.hawkeye.core.designsystem.HawkeyeDimens
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
+import com.px4.hawkeye.core.presentation.asString
 import com.px4.hawkeye.feature.settings.domain.DistanceUnit
 import com.px4.hawkeye.feature.settings.domain.ThemeMode
 import org.koin.androidx.compose.koinViewModel
@@ -72,6 +76,25 @@ fun SettingsScreen(
                 onClick = { onAction(SettingsAction.OnDistanceUnitSelected(unit)) },
             )
         }
+
+        Text(
+            text = stringResource(R.string.settings_connection_header),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(
+                top = HawkeyeDimens.itemSpacing,
+                bottom = HawkeyeDimens.titleSpacing,
+            ),
+        )
+        OutlinedTextField(
+            value = state.portInput,
+            onValueChange = { onAction(SettingsAction.OnListenPortChanged(it)) },
+            label = { Text(stringResource(R.string.settings_listen_port_label)) },
+            singleLine = true,
+            isError = state.portError != null,
+            supportingText = state.portError?.let { error -> { Text(error.asString()) } },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

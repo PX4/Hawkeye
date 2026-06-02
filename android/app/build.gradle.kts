@@ -58,6 +58,9 @@ dependencies {
     implementation(project(":feature:settings:domain"))
     implementation(project(":feature:settings:data"))
     implementation(project(":feature:settings:presentation"))
+    implementation(project(":feature:live:domain"))
+    implementation(project(":feature:live:data"))
+    implementation(project(":feature:live:presentation"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)

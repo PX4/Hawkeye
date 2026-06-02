@@ -12,23 +12,19 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
 import com.px4.hawkeye.android.R
@@ -41,8 +37,12 @@ import com.px4.hawkeye.core.navigation.ReplayKey
 import com.px4.hawkeye.core.navigation.TopLevelDestination
 import com.px4.hawkeye.feature.home.presentation.HomeRoot
 import com.px4.hawkeye.feature.home.presentation.HomeVideoBackground
+import com.px4.hawkeye.feature.live.presentation.LiveSetupRoot
+import com.px4.hawkeye.feature.settings.domain.AppSettings
+import com.px4.hawkeye.feature.settings.domain.SettingsRepository
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.getKoin
+import org.koin.compose.koinInject
 
 @Composable
 fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
@@ -107,16 +107,17 @@ fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
                     addEntryProvider(HomeKey::class, { it.toString() }) {
                         HomeRoot(
                             onNavigateToReplay = { backStacks.push(ReplayKey) },
+                            onConnectLive = { backStacks.push(LiveKey) },
                         )
                     }
                     // Replay's NavEntry is contributed by the feature's EntryProviderInstaller
-                    // (collected into `installers` below). The Live entry is registered but
-                    // currently unreachable: Connect launches the renderer in live mode directly
-                    // (see HomeRoot). The full Live screen lands in a later slice.
+                    // (collected into `installers` below). The Live setup screen is wired here
+                    // (in :app) because it needs the saved listen port from settings.
                     addEntryProvider(LiveKey::class, { it.toString() }) {
-                        ComingSoonScreen(
-                            titleRes = R.string.shell_live_title,
-                            messageRes = R.string.shell_live_coming_soon,
+                        val settings by koinInject<SettingsRepository>()
+                            .settings.collectAsStateWithLifecycle(AppSettings())
+                        LiveSetupRoot(
+                            listenPort = settings.listenPort,
                             onBack = { backStacks.pop() },
                         )
                     }
@@ -143,32 +144,4 @@ internal fun navSuiteLayoutType(orientation: Int): NavigationSuiteType =
 private fun TopLevelDestination.labelRes(): Int = when (this) {
     TopLevelDestination.HOME -> R.string.shell_nav_home
     TopLevelDestination.SETTINGS -> R.string.shell_nav_settings
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ComingSoonScreen(
-    @StringRes titleRes: Int,
-    @StringRes messageRes: Int,
-    onBack: () -> Unit,
-) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(titleRes)) },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text(stringResource(R.string.shell_back)) }
-                },
-            )
-        },
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(stringResource(messageRes))
-        }
-    }
 }

@@ -4,6 +4,8 @@ import android.app.Application
 import com.px4.hawkeye.android.di.appModule
 import com.px4.hawkeye.core.navigation.di.navigationModule
 import com.px4.hawkeye.feature.home.presentation.di.homePresentationModule
+import com.px4.hawkeye.feature.live.data.di.liveDataModule
+import com.px4.hawkeye.feature.live.presentation.di.livePresentationModule
 import com.px4.hawkeye.feature.replay.data.di.replayDataModule
 import com.px4.hawkeye.feature.replay.presentation.di.replayPresentationModule
 import com.px4.hawkeye.feature.settings.data.di.settingsDataModule
@@ -28,6 +30,8 @@ class HawkeyeApp : Application() {
                 settingsPresentationModule,
                 replayDataModule,
                 replayPresentationModule,
+                liveDataModule,
+                livePresentationModule,
             )
         }
     }

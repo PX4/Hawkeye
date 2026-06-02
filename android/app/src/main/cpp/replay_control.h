@@ -27,6 +27,11 @@ typedef struct {
     _Atomic float snap_pos_s;
     _Atomic float snap_dur_s;
     _Atomic float snap_speed;
+
+    // Live MAVLink status snapshot: written by the render thread, read by the JVM.
+    atomic_int    snap_live_state;   // 0 = waiting, 1 = connected, 2 = lost
+    atomic_uint   snap_live_sysid;   // valid when state == connected
+    atomic_uint   snap_live_port;    // bound listen port, echoed for the UI
 } replay_control_t;
 
 extern replay_control_t g_replay_control;
@@ -34,5 +39,8 @@ extern replay_control_t g_replay_control;
 // Render-thread side, called from the android_main loop each frame.
 void replay_control_apply(struct data_source *ds, bool active);
 void replay_control_publish(struct data_source *ds, bool active);
+
+// Publishes the live MAVLink connection snapshot (no-op outside live mode).
+void live_status_publish(struct data_source *ds, bool active, bool live_mode, unsigned int port);
 
 #endif

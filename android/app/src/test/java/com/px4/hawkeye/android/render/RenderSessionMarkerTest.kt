@@ -10,21 +10,21 @@ import java.io.File
 class RenderSessionMarkerTest {
 
     @Test
-    fun `writes the live token to inbox dot live`(@TempDir filesDir: File) {
+    fun `writes the live token and port to inbox dot live`(@TempDir filesDir: File) {
         val inbox = File(filesDir, "inbox")
 
-        writeLiveSessionMarker(inbox, tokenMillis = 1780000000123L)
+        writeLiveSessionMarker(inbox, tokenMillis = 1780000000123L, listenPort = 14550)
 
         val marker = File(inbox, ".live")
         assertThat(marker.exists()).isTrue()
-        assertThat(marker.readText()).isEqualTo("1780000000123")
+        assertThat(marker.readText()).isEqualTo("1780000000123 14550")
     }
 
     @Test
     fun `creates the inbox directory if missing`(@TempDir filesDir: File) {
         val inbox = File(filesDir, "inbox")
 
-        writeLiveSessionMarker(inbox, tokenMillis = 42L)
+        writeLiveSessionMarker(inbox, tokenMillis = 42L, listenPort = 19410)
 
         assertThat(inbox.isDirectory).isTrue()
     }

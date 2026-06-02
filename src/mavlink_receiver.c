@@ -25,7 +25,14 @@
 
 #define DISCONNECT_TIMEOUT_S 2.0
 
-static void request_home_position(mavlink_receiver_t *recv) {
+// Requested interval for the standard pose stream, in microseconds (50 Hz). Passed as
+// param2 of SET_MESSAGE_INTERVAL; -1 disables, 0 means the vehicle's default rate.
+#define STREAM_INTERVAL_US 20000.0f
+
+// Sends a COMMAND_LONG to the connected system. No-op until we've seen a packet
+// (sender address learned). param3-7 are unused for the commands we issue.
+static void send_command_long(mavlink_receiver_t *recv, uint16_t command,
+                              float param1, float param2) {
     if (!recv->sender_known) return;
 
     mavlink_message_t msg;
@@ -33,15 +40,28 @@ static void request_home_position(mavlink_receiver_t *recv) {
 
     mavlink_msg_command_long_pack(255, 0, &msg,
         recv->sysid, 1,               // target system, component
-        MAV_CMD_REQUEST_MESSAGE,       // command 512
-        0,                             // confirmation
-        MAVLINK_MSG_ID_HOME_POSITION,  // param1: message id to request
-        0, 0, 0, 0, 0, 0);            // params 2-7 unused
+        command,
+        0,                            // confirmation
+        param1, param2, 0, 0, 0, 0, 0);
 
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     sendto(recv->sockfd, (char *)buf, len, 0,
            (struct sockaddr *)recv->sender_addr, sizeof(struct sockaddr_in));
-    printf("Requested HOME_POSITION from system %u\n", recv->sysid);
+}
+
+// On connect, ask the vehicle for everything Hawkeye renders. HOME_POSITION is a
+// one-shot (the origin). ATTITUDE_QUATERNION + GLOBAL_POSITION_INT are the standard
+// pose stream a real vehicle (and non-SIH SITL) emits; we request them at a fixed
+// rate so they arrive without GCS-side config. A SIH sim pushes HIL_STATE_QUATERNION
+// unprompted and simply ignores these requests.
+static void request_telemetry(mavlink_receiver_t *recv) {
+    send_command_long(recv, MAV_CMD_REQUEST_MESSAGE,
+                      MAVLINK_MSG_ID_HOME_POSITION, 0);
+    send_command_long(recv, MAV_CMD_SET_MESSAGE_INTERVAL,
+                      MAVLINK_MSG_ID_ATTITUDE_QUATERNION, STREAM_INTERVAL_US);
+    send_command_long(recv, MAV_CMD_SET_MESSAGE_INTERVAL,
+                      MAVLINK_MSG_ID_GLOBAL_POSITION_INT, STREAM_INTERVAL_US);
+    printf("Requested HOME_POSITION + attitude/position streams from system %u\n", recv->sysid);
 }
 
 static double get_wall_time(void) {
@@ -145,7 +165,7 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
                             recv->connected = true;
                             recv->sysid = msg.sysid;
                             printf("Connected to system %u (type %u)\n", msg.sysid, hb.type);
-                            request_home_position(recv);
+                            request_telemetry(recv);
                         }
                         break;
                     }
@@ -186,6 +206,42 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
                                    hil.lat, hil.lon, hil.alt,
                                    hil.attitude_quaternion[0], hil.attitude_quaternion[1],
                                    hil.attitude_quaternion[2], hil.attitude_quaternion[3]);
+                        }
+                        break;
+                    }
+
+                    // Standard PX4 telemetry (real vehicle and non-SIH SITL). Orientation
+                    // and position arrive in separate messages; both write the same
+                    // recv->state fields as the HIL path, so the renderer is unchanged. A
+                    // given vehicle sends either the HIL message or these, never both.
+                    case MAVLINK_MSG_ID_ATTITUDE_QUATERNION: {
+                        mavlink_attitude_quaternion_t att;
+                        mavlink_msg_attitude_quaternion_decode(&msg, &att);
+                        // MAVLink q1..q4 are w,x,y,z — matching hil_state_t.quaternion order.
+                        recv->state.quaternion[0] = att.q1;
+                        recv->state.quaternion[1] = att.q2;
+                        recv->state.quaternion[2] = att.q3;
+                        recv->state.quaternion[3] = att.q4;
+                        recv->state.time_usec = (uint64_t)att.time_boot_ms * 1000;
+                        // Don't gate validity on attitude alone; position sets state.valid
+                        // so the vehicle isn't placed at origin before a fix arrives.
+                        break;
+                    }
+
+                    case MAVLINK_MSG_ID_GLOBAL_POSITION_INT: {
+                        mavlink_global_position_int_t gpi;
+                        mavlink_msg_global_position_int_decode(&msg, &gpi);
+                        recv->state.lat = gpi.lat;   // degE7
+                        recv->state.lon = gpi.lon;   // degE7
+                        recv->state.alt = gpi.alt;   // mm MSL (same as HIL alt)
+                        recv->state.vx = gpi.vx;     // cm/s NED
+                        recv->state.vy = gpi.vy;
+                        recv->state.vz = gpi.vz;
+                        recv->state.time_usec = (uint64_t)gpi.time_boot_ms * 1000;
+                        recv->state.valid = true;
+                        if (recv->debug) {
+                            printf("  GLOBAL_POSITION_INT: lat=%d lon=%d alt=%d v=[%d,%d,%d]\n",
+                                   gpi.lat, gpi.lon, gpi.alt, gpi.vx, gpi.vy, gpi.vz);
                         }
                         break;
                     }

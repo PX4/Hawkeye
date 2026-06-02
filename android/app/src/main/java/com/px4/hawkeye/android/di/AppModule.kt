@@ -12,5 +12,5 @@ import org.koin.dsl.module
 val appModule = module {
     viewModelOf(::ShellViewModel)
     single<ReplayPlaybackLauncher> { AndroidReplayPlaybackLauncher() }
-    single<LivePlaybackLauncher> { AndroidLivePlaybackLauncher() }
+    single<LivePlaybackLauncher> { AndroidLivePlaybackLauncher(get()) }
 }

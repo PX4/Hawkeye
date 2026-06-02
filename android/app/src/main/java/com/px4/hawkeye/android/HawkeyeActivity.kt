@@ -24,9 +24,12 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.px4.hawkeye.android.render.NativeLiveStatusController
 import com.px4.hawkeye.android.render.NativeReplayController
 import com.px4.hawkeye.android.render.RenderMode
 import com.px4.hawkeye.android.render.RendererLauncher
+import com.px4.hawkeye.android.render.live.LiveStatusRoot
+import com.px4.hawkeye.android.render.live.LiveStatusViewModel
 import com.px4.hawkeye.android.render.transport.TransportRoot
 import com.px4.hawkeye.android.render.transport.TransportViewModel
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
@@ -75,15 +78,26 @@ class HawkeyeActivity :
             TransportViewModel(NativeReplayController()) as T
     }
 
-    private lateinit var viewModel: TransportViewModel
-    private var transportOverlay: ComposeView? = null
+    private val liveStatusViewModelFactory = object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            LiveStatusViewModel(NativeLiveStatusController(), deviceIp) as T
+    }
+
+    private var overlay: ComposeView? = null
 
     // Read once from the launch Intent. Safe to cache: the activity uses the default
     // (standard) launch mode, so each launch is a brand-new instance with a fresh Intent;
     // onDestroy then halts the :renderer process. There is no in-place reuse (no
-    // singleTop/onNewIntent path) that could leave this value stale.
+    // singleTop/onNewIntent path) that could leave these values stale.
     private val isLiveMode: Boolean by lazy {
         intent?.getStringExtra(RendererLauncher.EXTRA_MODE) == RenderMode.LIVE.name
+    }
+
+    // Device LAN IP, resolved by the launcher and passed in so the live overlay can show the
+    // user where to point PX4 (the :renderer process has no Koin to inject a provider).
+    private val deviceIp: String? by lazy {
+        intent?.getStringExtra(RendererLauncher.EXTRA_DEVICE_IP)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,7 +107,6 @@ class HawkeyeActivity :
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
 
         goEdgeToEdge()
-        viewModel = ViewModelProvider(this, transportViewModelFactory)[TransportViewModel::class.java]
     }
 
     /** Draw under the system bars + cutout and hide the bars for a clean fullscreen replay. */
@@ -121,19 +134,19 @@ class HawkeyeActivity :
             // raylib/NativeActivity resets system UI on focus changes; re-assert immersive.
             hideSystemBars()
             // The window is attached and has a valid token by now, so the panel can be added.
-            attachTransportOverlay()
+            attachOverlay()
         }
     }
 
     /**
-     * Adds the transport overlay as a full-width sub-window above the renderer. Full width +
-     * cutout-always (set at creation) make the bar reach both edges; NOT_FOCUSABLE leaves
-     * Back to the renderer, NOT_TOUCH_MODAL + a wrap-height top window let camera gestures
-     * below the bar fall through to the GL surface.
+     * Adds the overlay as a full-width sub-window above the renderer: the replay transport bar
+     * for a replay session, or the live status strip for a live session. Full width +
+     * cutout-always (set at creation) make it reach both edges; NOT_FOCUSABLE leaves Back to
+     * the renderer, NOT_TOUCH_MODAL + a wrap-height top window let camera gestures below it
+     * fall through to the GL surface.
      */
-    private fun attachTransportOverlay() {
-        if (isLiveMode) return // No replay transport bar for a live session.
-        if (transportOverlay != null) return
+    private fun attachOverlay() {
+        if (overlay != null) return
         val composeView = ComposeView(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             setViewTreeLifecycleOwner(this@HawkeyeActivity)
@@ -141,7 +154,19 @@ class HawkeyeActivity :
             setViewTreeSavedStateRegistryOwner(this@HawkeyeActivity)
             setContent {
                 HawkeyeTheme {
-                    TransportRoot(viewModel = viewModel)
+                    if (isLiveMode) {
+                        LiveStatusRoot(
+                            viewModel = ViewModelProvider(
+                                this@HawkeyeActivity, liveStatusViewModelFactory,
+                            )[LiveStatusViewModel::class.java],
+                        )
+                    } else {
+                        TransportRoot(
+                            viewModel = ViewModelProvider(
+                                this@HawkeyeActivity, transportViewModelFactory,
+                            )[TransportViewModel::class.java],
+                        )
+                    }
                 }
             }
         }
@@ -165,7 +190,7 @@ class HawkeyeActivity :
             }
         }
         windowManager.addView(composeView, params)
-        transportOverlay = composeView
+        overlay = composeView
     }
 
     override fun onStart() {
