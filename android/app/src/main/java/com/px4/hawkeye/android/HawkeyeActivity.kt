@@ -25,6 +25,8 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.px4.hawkeye.android.render.NativeReplayController
+import com.px4.hawkeye.android.render.RenderMode
+import com.px4.hawkeye.android.render.RendererLauncher
 import com.px4.hawkeye.android.render.transport.TransportRoot
 import com.px4.hawkeye.android.render.transport.TransportViewModel
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
@@ -76,6 +78,12 @@ class HawkeyeActivity :
     private lateinit var viewModel: TransportViewModel
     private var transportOverlay: ComposeView? = null
 
+    // Read once from the launch Intent. Safe to cache: onDestroy halts the :renderer
+    // process, so every session is a cold start with a fresh Intent (no singleTop reuse).
+    private val isLiveMode: Boolean by lazy {
+        intent?.getStringExtra(RendererLauncher.EXTRA_MODE) == RenderMode.LIVE.name
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         savedStateRegistryController.performAttach()
         savedStateRegistryController.performRestore(savedInstanceState)
@@ -122,6 +130,7 @@ class HawkeyeActivity :
      * below the bar fall through to the GL surface.
      */
     private fun attachTransportOverlay() {
+        if (isLiveMode) return // No replay transport bar for a live session.
         if (transportOverlay != null) return
         val composeView = ComposeView(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
