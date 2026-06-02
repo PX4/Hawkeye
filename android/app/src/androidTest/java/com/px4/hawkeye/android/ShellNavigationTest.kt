@@ -75,7 +75,7 @@ class ShellNavigationTest {
 
     private companion object {
         const val HOME_REPLAY_CARD = "Replay a flight"
-        const val HOME_CONNECT_CARD = "Connect to a simulator"
+        const val HOME_CONNECT_CARD = "Connect to a vehicle"
         const val REPLAY_LIBRARY_TITLE = "Replay library"
         const val NAV_SETTINGS = "Settings"
         const val SETTINGS_THEME_HEADER = "Theme"
