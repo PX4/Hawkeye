@@ -29,7 +29,6 @@
             android:name=".HawkeyeActivity"
             android:exported="false"
             android:process=":renderer"
-            android:launchMode="singleTop"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode|fontScale|smallestScreenSize|screenLayout|density|layoutDirection">
 
