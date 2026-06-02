@@ -5,6 +5,7 @@
 #include "vehicle.h"
 #include "data_source.h"
 #include "hud.h"
+#include "live_marker.h"
 #include "replay_control.h"
 #include <android/asset_manager.h>
 #include <android/input.h>
@@ -393,10 +394,9 @@ static long long read_ready_token(const char *path) {
     return (end == buf) ? 0 : val;
 }
 
-// Parses the live marker "<millis> [port]". Returns the millis token (0 on
-// missing/empty/parse-fail, matching read_ready_token so the newest-token-wins
-// comparison is unchanged) and writes a validated listen port through out_port.
-// The port is optional: a bare "<millis>" (legacy format) keeps the fallback.
+// Reads the live marker file and parses "<millis> [port]" via parse_live_marker
+// (live_marker.h). Returns the millis token (0 on missing/empty/parse-fail) and
+// writes a validated listen port (fallback HAWKEYE_MAVLINK_PORT) through out_port.
 static long long read_live_marker(const char *path, uint16_t *out_port) {
     *out_port = HAWKEYE_MAVLINK_PORT;
     FILE *f = fopen(path, "rb");
@@ -406,18 +406,7 @@ static long long read_live_marker(const char *path, uint16_t *out_port) {
     fclose(f);
     if (n == 0) return 0;
     buf[n] = '\0';
-
-    char *end = NULL;
-    long long token = strtoll(buf, &end, 10);
-    if (end == buf) return 0;
-
-    // Optional trailing port; keep the fallback unless it parses inside the valid range.
-    char *port_end = NULL;
-    long port = strtol(end, &port_end, 10);
-    if (port_end != end && port >= 1024 && port <= 65535) {
-        *out_port = (uint16_t)port;
-    }
-    return token;
+    return parse_live_marker(buf, HAWKEYE_MAVLINK_PORT, out_port);
 }
 
 static int try_load_inbox_ulog(vehicle_t *vehicle) {

@@ -9,9 +9,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -24,7 +23,6 @@ import com.px4.hawkeye.core.designsystem.HawkeyeDimens
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 import com.px4.hawkeye.core.designsystem.glassSurface
 import com.px4.hawkeye.feature.live.domain.LiveConnectionState
-import kotlinx.coroutines.delay
 
 /**
  * Live-mode counterpart to the replay transport bar: a non-interactive status strip hosted in
@@ -33,15 +31,8 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun LiveStatusRoot(viewModel: LiveStatusViewModel) {
-    val status by viewModel.state.collectAsState()
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            viewModel.refresh()
-            delay(LiveStatusViewModel.POLL_INTERVAL_MS)
-        }
-    }
-
+    // The ViewModel owns the native-status polling loop; the Root just collects state.
+    val status by viewModel.state.collectAsStateWithLifecycle()
     LiveStatusScreen(status = status, deviceIp = viewModel.deviceIp)
 }
 

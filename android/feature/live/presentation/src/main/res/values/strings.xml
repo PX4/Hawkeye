@@ -7,5 +7,6 @@
     <string name="live_ip_unavailable">Couldn\'t determine this device\'s IP address. Check your network connection.</string>
     <string name="live_port_label">Listen port: %1$d</string>
     <string name="live_change_port_hint">Change the listen port in Settings.</string>
+    <string name="live_retry_ip">Retry</string>
     <string name="live_start_button">Start live session</string>
 </resources>

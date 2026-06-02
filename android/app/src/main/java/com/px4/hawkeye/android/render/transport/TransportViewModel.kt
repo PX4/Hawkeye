@@ -1,17 +1,20 @@
 package com.px4.hawkeye.android.render.transport
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.px4.hawkeye.android.render.ReplayController
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
- * Backs the touch transport overlay. State is a pull-based snapshot of the native engine:
- * [refresh] reads the current status (the Root polls it on a cadence), and [onAction]
- * forwards user input to the [controller]. No coroutines/`viewModelScope` here — the
- * polling cadence lives in the Root as a lifecycle side effect, which keeps this fully
- * synchronous and unit-testable.
+ * Backs the touch transport overlay. State is a pull-based snapshot of the native engine,
+ * which has no push channel: the ViewModel owns the polling cadence ([refresh] on a
+ * [viewModelScope] loop) and [onAction] forwards user input to the [controller]. The Root
+ * just collects [state]; it does not drive the loop.
  */
 class TransportViewModel(
     private val controller: ReplayController,
@@ -19,6 +22,15 @@ class TransportViewModel(
 
     private val _state = MutableStateFlow(TransportState())
     val state = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            while (isActive) {
+                refresh()
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+    }
 
     fun refresh() {
         val status = controller.status()

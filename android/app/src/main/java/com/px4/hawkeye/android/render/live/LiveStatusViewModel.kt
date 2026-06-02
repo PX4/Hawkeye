@@ -1,20 +1,25 @@
 package com.px4.hawkeye.android.render.live
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.px4.hawkeye.android.render.LiveStatus
 import com.px4.hawkeye.android.render.LiveStatusController
 import com.px4.hawkeye.feature.live.domain.LiveConnectionState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
- * Backs the live-status overlay. Pull-based snapshot of the native receiver: [refresh] reads
- * the current status (the Root polls it on a cadence). Synchronous and unit-testable; the
- * device IP is supplied by the host (it's a JVM-side value, not known to native).
+ * Backs the live-status overlay. Pull-based snapshot of the native receiver, which has no push
+ * channel: the ViewModel owns the polling cadence ([refresh] on a [viewModelScope] loop) and the
+ * Root just collects [state]. The device IP is supplied by the host (a JVM-side value not known
+ * to native).
  */
 class LiveStatusViewModel(
     private val controller: LiveStatusController,
-    deviceIp: String?,
+    val deviceIp: String?,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -22,7 +27,14 @@ class LiveStatusViewModel(
     )
     val state = _state.asStateFlow()
 
-    val deviceIp: String? = deviceIp
+    init {
+        viewModelScope.launch {
+            while (isActive) {
+                refresh()
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+    }
 
     fun refresh() {
         _state.value = controller.status()

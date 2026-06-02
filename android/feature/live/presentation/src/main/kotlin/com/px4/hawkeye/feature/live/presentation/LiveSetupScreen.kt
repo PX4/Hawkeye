@@ -108,6 +108,9 @@ fun LiveSetupScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error,
                         )
+                        TextButton(onClick = { onAction(LiveSetupAction.OnRefreshIp) }) {
+                            Text(stringResource(R.string.live_retry_ip))
+                        }
                     }
                     Spacer(modifier = Modifier.height(HawkeyeDimens.captionSpacing))
                     Text(

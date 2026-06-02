@@ -18,20 +18,25 @@ interface LiveStatusController {
     fun status(): LiveStatus
 }
 
+/**
+ * Decodes the native `[state, sysid, port]` FloatArray into a [LiveStatus]. Pure (no JNI) so
+ * it is unit-testable. sysid/port fit exactly in float32 (sysid <= 255, port <= 65535), so the
+ * float round-trip is lossless. A short or malformed array falls back to a waiting status.
+ */
+internal fun decodeLiveStatus(s: FloatArray): LiveStatus {
+    if (s.size < 3) return LiveStatus(LiveConnectionState.WAITING, sysid = 0, port = 0)
+    val state = when (s[0].toInt()) {
+        1 -> LiveConnectionState.CONNECTED
+        2 -> LiveConnectionState.LOST
+        else -> LiveConnectionState.WAITING
+    }
+    return LiveStatus(state = state, sysid = s[1].toInt(), port = s[2].toInt())
+}
+
 /** JNI-backed [LiveStatusController]. Only used inside the `:renderer` process. */
 class NativeLiveStatusController : LiveStatusController {
 
-    override fun status(): LiveStatus {
-        val s = nativeGetLiveStatus()
-        // [state, sysid, port]; state 0 = waiting, 1 = connected, 2 = lost.
-        if (s.size < 3) return LiveStatus(LiveConnectionState.WAITING, sysid = 0, port = 0)
-        val state = when (s[0].toInt()) {
-            1 -> LiveConnectionState.CONNECTED
-            2 -> LiveConnectionState.LOST
-            else -> LiveConnectionState.WAITING
-        }
-        return LiveStatus(state = state, sysid = s[1].toInt(), port = s[2].toInt())
-    }
+    override fun status(): LiveStatus = decodeLiveStatus(nativeGetLiveStatus())
 
     private external fun nativeGetLiveStatus(): FloatArray
 

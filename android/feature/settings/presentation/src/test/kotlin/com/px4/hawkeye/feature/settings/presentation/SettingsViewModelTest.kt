@@ -86,4 +86,21 @@ class SettingsViewModelTest {
         }
         assertThat(repo.settings.value.listenPort).isEqualTo(DEFAULT_LIVE_PORT)
     }
+
+    @Test
+    fun `an in-progress invalid port is not clobbered by a later settings emission`() = runTest {
+        val vm = SettingsViewModel(repo)
+        vm.state.test {
+            awaitItem()
+            // Invalid edit: error set, raw input retained.
+            vm.onAction(SettingsAction.OnListenPortChanged("99"))
+            // An unrelated setting changes, re-emitting AppSettings from the repo flow.
+            vm.onAction(SettingsAction.OnThemeModeSelected(ThemeMode.DARK))
+            val s = expectMostRecentItem()
+            assertThat(s.themeMode).isEqualTo(ThemeMode.DARK)
+            // The bad input and its error survive (not reseeded from the persisted port).
+            assertThat(s.portInput).isEqualTo("99")
+            assertThat(s.portError).isNotNull()
+        }
+    }
 }

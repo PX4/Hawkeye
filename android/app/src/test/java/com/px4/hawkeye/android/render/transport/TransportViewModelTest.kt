@@ -5,9 +5,39 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
 import assertk.assertions.isTrue
 import com.px4.hawkeye.android.render.ReplayStatus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TransportViewModelTest {
+
+    // Shared scheduler so the VM's viewModelScope poll loop can be advanced deterministically.
+    private val scheduler = TestCoroutineScheduler()
+    private val dispatcher = UnconfinedTestDispatcher(scheduler)
+
+    @BeforeEach fun setUp() { Dispatchers.setMain(dispatcher) }
+    @AfterEach fun tearDown() { Dispatchers.resetMain() }
+
+    @Test
+    fun `self-polls the controller on a cadence`() {
+        val controller = FakeReplayController().apply {
+            status = ReplayStatus(active = true, paused = false, positionS = 0f, durationS = 100f, speed = 1f)
+        }
+        val vm = TransportViewModel(controller)
+        // The init loop runs one eager poll at construction.
+        assertThat(vm.state.value.isActive).isTrue()
+        // A later native change is picked up on the next tick.
+        controller.status = controller.status.copy(positionS = 5f)
+        scheduler.advanceTimeBy(TransportViewModel.POLL_INTERVAL_MS + 1)
+        assertThat(vm.state.value.positionMs).isEqualTo(5_000L)
+    }
 
     @Test
     fun `refresh maps native status into state`() {
