@@ -21,6 +21,7 @@
 
 // Bump this string whenever APK assets change to force re-extraction on next launch.
 #define HAWKEYE_ASSET_VERSION "2"
+#define HAWKEYE_MAVLINK_PORT 19410
 #define MAX_PATH_LEN ASSET_MAX_PATH
 
 #define TOUCH_ORBIT_SENSITIVITY  0.005f
@@ -367,6 +368,7 @@ static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
 // the replay when the token changes.
 static data_source_t g_ds;
 static bool          g_ds_active = false;
+static bool          g_live_mode = false;
 static long long     g_last_ready_token = 0;
 static hud_t         g_hud;
 // Initialized to a large negative value so the first poll always proceeds.
@@ -516,18 +518,53 @@ int main(int argc, char *argv[]) {
     scene.camera.target = orbit_target;
     g_last_vehicle_pos  = vehicle.position;
 
-    // Pick up a .ulg already staged into the inbox before native main() ran.
-    try_load_inbox_ulog(&vehicle);
+    // Decide live vs replay from the inbox markers (newest token wins). The Kotlin
+    // launcher writes inbox/.live for a Connect tap and inbox/.ready for a replay; a
+    // fresh tap therefore beats any stale marker.
+    {
+        char live_path[MAX_PATH_LEN], ready_path[MAX_PATH_LEN];
+        snprintf(live_path, sizeof(live_path), "%s/inbox/.live", s_internal_data_path);
+        snprintf(ready_path, sizeof(ready_path), "%s/inbox/.ready", s_internal_data_path);
+        long long live_token = read_ready_token(live_path);
+        long long ready_token = read_ready_token(ready_path);
+        // >= so an (unreachable) tie favors the explicit live intent; in practice the two
+        // tokens come from distinct user actions stamped at different millis.
+        if (live_token > 0 && live_token >= ready_token) {
+            if (data_source_mavlink_create(&g_ds, HAWKEYE_MAVLINK_PORT, /*channel=*/0, false) == 0) {
+                g_ds_active = true;
+                g_live_mode = true;
+                __android_log_print(ANDROID_LOG_INFO, "Hawkeye",
+                    "live MAVLink: listening on UDP %d", HAWKEYE_MAVLINK_PORT);
+            } else {
+                // Bind failed: fall through to replay (the inbox load below runs because
+                // g_live_mode stayed false) rather than show a dead live session.
+                __android_log_print(ANDROID_LOG_ERROR, "Hawkeye",
+                    "live MAVLink: failed to bind UDP %d", HAWKEYE_MAVLINK_PORT);
+            }
+        }
+    }
+
+    // Replay: pick up a .ulg already staged into the inbox before native main() ran
+    // (skipped in live mode so the inbox never overrides a live session).
+    if (!g_live_mode) try_load_inbox_ulog(&vehicle);
 
     while (!WindowShouldClose()) {
-        // Catch a new log staged while the renderer is already running.
-        try_load_inbox_ulog(&vehicle);
+        // Catch a new log staged while the renderer is already running (replay only).
+        if (!g_live_mode) try_load_inbox_ulog(&vehicle);
 
         // Apply pending transport requests from the Compose overlay (JVM thread).
         replay_control_apply(&g_ds, g_ds_active);
 
         if (g_ds_active) {
             data_source_poll(&g_ds, GetFrameTime());
+            if (g_live_mode) {
+                static bool s_was_connected = false;
+                if (g_ds.connected != s_was_connected) {
+                    s_was_connected = g_ds.connected;
+                    __android_log_print(ANDROID_LOG_INFO, "Hawkeye",
+                        "live MAVLink: connected=%d sysid=%u", g_ds.connected, g_ds.sysid);
+                }
+            }
             vehicle_update(&vehicle, &g_ds.state, &g_ds.home);
 
             // Camera follow: translate the orbit center and the camera by the
