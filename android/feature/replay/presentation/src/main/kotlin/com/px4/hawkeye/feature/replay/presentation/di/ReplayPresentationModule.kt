@@ -1,16 +1,11 @@
 package com.px4.hawkeye.feature.replay.presentation.di
 
-import com.px4.hawkeye.core.navigation.EntryProviderInstaller
-import com.px4.hawkeye.core.navigation.ReplayKey
-import com.px4.hawkeye.feature.replay.presentation.ReplayLibraryRoot
 import com.px4.hawkeye.feature.replay.presentation.ReplayLibraryViewModel
 import org.koin.core.module.dsl.viewModelOf
-import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
+// The ReplayKey NavEntry is registered in :app's AppShell (like Home/Live) so it can wire the
+// top-bar back button to the shell's back stack; this module just provides the ViewModel.
 val replayPresentationModule = module {
     viewModelOf(::ReplayLibraryViewModel)
-    single<EntryProviderInstaller>(named("replay")) {
-        { addEntryProvider(ReplayKey::class, { it.toString() }) { ReplayLibraryRoot() } }
-    }
 }
