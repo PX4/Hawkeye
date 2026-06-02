@@ -96,6 +96,8 @@ fun ReplayLibraryScreen(
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { onAction(ReplayLibraryAction.OnOpenFileClicked) },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
             ) { Text(stringResource(R.string.replay_open_file)) }
         },
     ) { innerPadding ->
