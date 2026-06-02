@@ -15,7 +15,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -44,6 +48,7 @@ import org.koin.compose.koinInject
 
 @Composable
 fun ReplayLibraryRoot(
+    onBack: () -> Unit,
     viewModel: ReplayLibraryViewModel = koinViewModel(),
     playbackLauncher: ReplayPlaybackLauncher = koinInject(),
 ) {
@@ -64,7 +69,7 @@ fun ReplayLibraryRoot(
         }
     }
 
-    ReplayLibraryScreen(state = state, onAction = viewModel::onAction)
+    ReplayLibraryScreen(state = state, onAction = viewModel::onAction, onBack = onBack)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,9 +77,22 @@ fun ReplayLibraryRoot(
 fun ReplayLibraryScreen(
     state: ReplayLibraryState,
     onAction: (ReplayLibraryAction) -> Unit,
+    onBack: () -> Unit,
 ) {
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.replay_library_title)) }) },
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.replay_library_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.replay_back),
+                        )
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { onAction(ReplayLibraryAction.OnOpenFileClicked) },
@@ -209,6 +227,7 @@ private fun ReplayLibraryScreenPreview() {
                 ),
             ),
             onAction = {},
+            onBack = {},
         )
     }
 }
@@ -220,6 +239,7 @@ private fun ReplayLibraryEmptyPreview() {
         ReplayLibraryScreen(
             state = ReplayLibraryState(isLoading = false),
             onAction = {},
+            onBack = {},
         )
     }
 }

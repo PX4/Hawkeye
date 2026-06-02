@@ -38,6 +38,7 @@ import com.px4.hawkeye.core.navigation.TopLevelDestination
 import com.px4.hawkeye.feature.home.presentation.HomeRoot
 import com.px4.hawkeye.feature.home.presentation.HomeVideoBackground
 import com.px4.hawkeye.feature.live.presentation.LiveSetupRoot
+import com.px4.hawkeye.feature.replay.presentation.ReplayLibraryRoot
 import com.px4.hawkeye.feature.settings.domain.AppSettings
 import com.px4.hawkeye.feature.settings.domain.SettingsRepository
 import org.koin.androidx.compose.koinViewModel
@@ -110,9 +111,12 @@ fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
                             onConnectLive = { backStacks.push(LiveKey) },
                         )
                     }
-                    // Replay's NavEntry is contributed by the feature's EntryProviderInstaller
-                    // (collected into `installers` below). The Live setup screen is wired here
-                    // (in :app) because it needs the saved listen port from settings.
+                    // Replay and Live are pushed (non-tab) destinations, so their top bars get a
+                    // back button wired to the shell back stack — registered here in :app for
+                    // access to it. (Top-level tabs Home/Settings need no back button.)
+                    addEntryProvider(ReplayKey::class, { it.toString() }) {
+                        ReplayLibraryRoot(onBack = { backStacks.pop() })
+                    }
                     addEntryProvider(LiveKey::class, { it.toString() }) {
                         val settings by koinInject<SettingsRepository>()
                             .settings.collectAsStateWithLifecycle(AppSettings())

@@ -18,6 +18,7 @@ internal fun Project.configureAndroidCompose(extension: CommonExtension) {
         add("implementation", libs.lib("androidx-compose-ui"))
         add("implementation", libs.lib("androidx-compose-ui-tooling-preview"))
         add("implementation", libs.lib("androidx-compose-material3"))
+        add("implementation", libs.lib("androidx-compose-material-icons-core"))
         add("implementation", libs.lib("androidx-activity-compose"))
         add("implementation", libs.lib("androidx-lifecycle-runtime-compose"))
 

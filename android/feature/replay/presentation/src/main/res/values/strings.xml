@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="replay_library_title">Replay library</string>
+    <string name="replay_back">Back</string>
     <string name="replay_open_file">Open file</string>
 
     <string name="replay_empty_title">No logs yet</string>
