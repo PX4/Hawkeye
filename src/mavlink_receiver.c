@@ -164,6 +164,10 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
                         if (!recv->connected) {
                             recv->connected = true;
                             recv->sysid = msg.sysid;
+                            // Start each session clean: clear optional-field validity so a
+                            // HIL-only reconnect can't reuse a stale relative altitude from a
+                            // previous standard-telemetry session.
+                            recv->state.relative_alt_valid = false;
                             printf("Connected to system %u (type %u)\n", msg.sysid, hb.type);
                             request_telemetry(recv);
                         }
