@@ -119,7 +119,7 @@ class HomeScreenLayoutTest {
     private companion object {
         const val HOME_TITLE = "Hawkeye"
         const val REPLAY_CARD = "Replay a flight"
-        const val CONNECT_CARD = "Connect to a simulator"
+        const val CONNECT_CARD = "Connect to a vehicle"
         const val RECENT_HEADER = "Recent flights"
         const val RECENT_NAME = "flight_log.ulg"
     }
