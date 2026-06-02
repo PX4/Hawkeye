@@ -6,4 +6,5 @@ interface SettingsRepository {
     val settings: Flow<AppSettings>
     suspend fun setThemeMode(mode: ThemeMode)
     suspend fun setDistanceUnit(unit: DistanceUnit)
+    suspend fun setListenPort(port: Int)
 }

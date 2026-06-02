@@ -3,6 +3,9 @@ package com.px4.hawkeye.feature.settings.presentation
 import app.cash.turbine.test
 import assertk.assertThat
 import assertk.assertions.isEqualTo
+import assertk.assertions.isNotNull
+import assertk.assertions.isNull
+import com.px4.hawkeye.core.domain.DEFAULT_LIVE_PORT
 import com.px4.hawkeye.feature.settings.domain.DistanceUnit
 import com.px4.hawkeye.feature.settings.domain.ThemeMode
 import kotlinx.coroutines.Dispatchers
@@ -47,5 +50,40 @@ class SettingsViewModelTest {
             vm.onAction(SettingsAction.OnDistanceUnitSelected(DistanceUnit.IMPERIAL))
             assertThat(awaitItem().distanceUnit).isEqualTo(DistanceUnit.IMPERIAL)
         }
+    }
+
+    @Test
+    fun `valid port persists and clears error`() = runTest {
+        val vm = SettingsViewModel(repo)
+        vm.state.test {
+            awaitItem()
+            vm.onAction(SettingsAction.OnListenPortChanged("14550"))
+            val s = expectMostRecentItem()
+            assertThat(s.portInput).isEqualTo("14550")
+            assertThat(s.portError).isNull()
+        }
+        assertThat(repo.settings.value.listenPort).isEqualTo(14550)
+    }
+
+    @Test
+    fun `out-of-range port sets error and does not persist`() = runTest {
+        val vm = SettingsViewModel(repo)
+        vm.state.test {
+            awaitItem()
+            vm.onAction(SettingsAction.OnListenPortChanged("80"))
+            assertThat(expectMostRecentItem().portError).isNotNull()
+        }
+        assertThat(repo.settings.value.listenPort).isEqualTo(DEFAULT_LIVE_PORT)
+    }
+
+    @Test
+    fun `non-numeric port sets error and does not persist`() = runTest {
+        val vm = SettingsViewModel(repo)
+        vm.state.test {
+            awaitItem()
+            vm.onAction(SettingsAction.OnListenPortChanged("abc"))
+            assertThat(expectMostRecentItem().portError).isNotNull()
+        }
+        assertThat(repo.settings.value.listenPort).isEqualTo(DEFAULT_LIVE_PORT)
     }
 }

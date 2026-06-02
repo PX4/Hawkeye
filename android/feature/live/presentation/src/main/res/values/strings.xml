@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="live_title">Connect to a simulator</string>
+    <string name="live_back">Back</string>
+    <string name="live_instruction">Point PX4 or your simulator at this device, then start the session. The app listens for MAVLink; the vehicle must send telemetry here.</string>
+    <string name="live_endpoint_label">Send MAVLink to</string>
+    <string name="live_ip_unavailable">Couldn\'t determine this device\'s IP address. Check your network connection.</string>
+    <string name="live_port_label">Listen port: %1$d</string>
+    <string name="live_change_port_hint">Change the listen port in Settings.</string>
+    <string name="live_start_button">Start live session</string>
+</resources>

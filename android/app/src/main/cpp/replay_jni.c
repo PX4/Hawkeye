@@ -30,6 +30,27 @@ void replay_control_publish(struct data_source *ds, bool active) {
     }
 }
 
+void live_status_publish(struct data_source *ds, bool active, bool live_mode, unsigned int port) {
+    if (!live_mode) return;
+    atomic_store(&g_replay_control.snap_live_port, port);
+
+    // Render-thread-only latch: distinguishes "never connected" (waiting) from
+    // "was connected, telemetry stopped" (lost). ds->connected is the receiver's own
+    // heartbeat-timeout flag (see mavlink_receiver.c).
+    static bool s_ever_connected = false;
+    int state;
+    if (active && ds->connected) {
+        s_ever_connected = true;
+        state = 1;  // connected
+        atomic_store(&g_replay_control.snap_live_sysid, ds->sysid);
+    } else if (s_ever_connected) {
+        state = 2;  // lost
+    } else {
+        state = 0;  // waiting
+    }
+    atomic_store(&g_replay_control.snap_live_state, state);
+}
+
 // --- JNI surface for com.px4.hawkeye.android.render.NativeReplayController ---
 
 JNIEXPORT void JNICALL
@@ -70,6 +91,25 @@ Java_com_px4_hawkeye_android_render_NativeReplayController_nativeGetStatus(
     jfloatArray array = (*env)->NewFloatArray(env, 5);
     if (array != NULL) {
         (*env)->SetFloatArrayRegion(env, array, 0, 5, values);
+    }
+    return array;
+}
+
+// --- JNI surface for com.px4.hawkeye.android.render.NativeLiveStatusController ---
+
+// Returns [state, sysid, port]; state 0 = waiting, 1 = connected, 2 = lost.
+JNIEXPORT jfloatArray JNICALL
+Java_com_px4_hawkeye_android_render_NativeLiveStatusController_nativeGetLiveStatus(
+        JNIEnv *env, jobject thiz) {
+    (void)thiz;
+    jfloat values[3];
+    values[0] = (jfloat)atomic_load(&g_replay_control.snap_live_state);
+    values[1] = (jfloat)atomic_load(&g_replay_control.snap_live_sysid);
+    values[2] = (jfloat)atomic_load(&g_replay_control.snap_live_port);
+
+    jfloatArray array = (*env)->NewFloatArray(env, 3);
+    if (array != NULL) {
+        (*env)->SetFloatArrayRegion(env, array, 0, 3, values);
     }
     return array;
 }

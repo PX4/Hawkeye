@@ -56,9 +56,9 @@ class ShellNavigationTest {
     @Test
     fun live_isReachableFromHome_andSurvivesRotation() {
         composeRule.onNodeWithText(HOME_CONNECT_CARD).performClick()
-        composeRule.onNodeWithText(LIVE_COMING_SOON).assertIsDisplayed()
+        composeRule.onNodeWithText(LIVE_START_BUTTON).assertIsDisplayed()
         rotate()
-        composeRule.onNodeWithText(LIVE_COMING_SOON).assertIsDisplayed()
+        composeRule.onNodeWithText(LIVE_START_BUTTON).assertIsDisplayed()
     }
 
     @Test
@@ -79,6 +79,6 @@ class ShellNavigationTest {
         const val REPLAY_LIBRARY_TITLE = "Replay library"
         const val NAV_SETTINGS = "Settings"
         const val SETTINGS_THEME_HEADER = "Theme"
-        const val LIVE_COMING_SOON = "Connecting to a simulator is coming in Plan 3."
+        const val LIVE_START_BUTTON = "Start live session"
     }
 }

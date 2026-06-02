@@ -393,6 +393,33 @@ static long long read_ready_token(const char *path) {
     return (end == buf) ? 0 : val;
 }
 
+// Parses the live marker "<millis> [port]". Returns the millis token (0 on
+// missing/empty/parse-fail, matching read_ready_token so the newest-token-wins
+// comparison is unchanged) and writes a validated listen port through out_port.
+// The port is optional: a bare "<millis>" (legacy format) keeps the fallback.
+static long long read_live_marker(const char *path, uint16_t *out_port) {
+    *out_port = HAWKEYE_MAVLINK_PORT;
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char buf[64];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    if (n == 0) return 0;
+    buf[n] = '\0';
+
+    char *end = NULL;
+    long long token = strtoll(buf, &end, 10);
+    if (end == buf) return 0;
+
+    // Optional trailing port; keep the fallback unless it parses inside the valid range.
+    char *port_end = NULL;
+    long port = strtol(end, &port_end, 10);
+    if (port_end != end && port >= 1024 && port <= 65535) {
+        *out_port = (uint16_t)port;
+    }
+    return token;
+}
+
 static int try_load_inbox_ulog(vehicle_t *vehicle) {
     // Throttle to 1 Hz. Sentinel changes are user-driven (library playback), so
     // a per-frame stat()/read() at 60 Hz is wasted work — and since we read
@@ -520,12 +547,14 @@ int main(int argc, char *argv[]) {
 
     // Decide live vs replay from the inbox markers (newest token wins). The Kotlin
     // launcher writes inbox/.live for a Connect tap and inbox/.ready for a replay; a
-    // fresh tap therefore beats any stale marker.
+    // fresh tap therefore beats any stale marker. live_port lives at main() scope so the
+    // loop's live_status_publish can echo the actually-bound port back to the UI.
+    uint16_t live_port = HAWKEYE_MAVLINK_PORT;
     {
         char live_path[MAX_PATH_LEN], ready_path[MAX_PATH_LEN];
         snprintf(live_path, sizeof(live_path), "%s/inbox/.live", s_internal_data_path);
         snprintf(ready_path, sizeof(ready_path), "%s/inbox/.ready", s_internal_data_path);
-        long long live_token = read_ready_token(live_path);
+        long long live_token = read_live_marker(live_path, &live_port);
         long long ready_token = read_ready_token(ready_path);
         // >= so an (unreachable) tie favors the explicit live intent; in practice the two
         // tokens come from distinct user actions stamped at different millis.
@@ -536,14 +565,14 @@ int main(int argc, char *argv[]) {
             // sessions (HawkeyeActivity.isLiveMode), so a replay fallback would render with no
             // transport controls at all. On bind failure we stay in the live "Waiting…" state.
             g_live_mode = true;
-            if (data_source_mavlink_create(&g_ds, HAWKEYE_MAVLINK_PORT, /*channel=*/0, false) == 0) {
+            if (data_source_mavlink_create(&g_ds, live_port, /*channel=*/0, false) == 0) {
                 g_ds_active = true;
                 __android_log_print(ANDROID_LOG_INFO, "Hawkeye",
-                    "live MAVLink: listening on UDP %d", HAWKEYE_MAVLINK_PORT);
+                    "live MAVLink: listening on UDP %u", live_port);
             } else {
                 __android_log_print(ANDROID_LOG_ERROR, "Hawkeye",
-                    "live MAVLink: failed to bind UDP %d (staying in live waiting state)",
-                    HAWKEYE_MAVLINK_PORT);
+                    "live MAVLink: failed to bind UDP %u (staying in live waiting state)",
+                    live_port);
             }
         }
     }
@@ -583,8 +612,9 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Publish playback status for the Compose overlay to read via JNI.
+        // Publish playback + live status for the Compose overlay to read via JNI.
         replay_control_publish(&g_ds, g_ds_active);
+        live_status_publish(&g_ds, g_ds_active, g_live_mode, live_port);
 
         handle_touch(&scene.camera, &orbit_target,
                      &prev_count, &prev_touch,

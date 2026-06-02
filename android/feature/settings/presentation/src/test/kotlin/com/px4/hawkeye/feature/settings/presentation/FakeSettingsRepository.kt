@@ -11,4 +11,5 @@ class FakeSettingsRepository : SettingsRepository {
     override val settings = state
     override suspend fun setThemeMode(mode: ThemeMode) { state.value = state.value.copy(themeMode = mode) }
     override suspend fun setDistanceUnit(unit: DistanceUnit) { state.value = state.value.copy(distanceUnit = unit) }
+    override suspend fun setListenPort(port: Int) { state.value = state.value.copy(listenPort = port) }
 }
