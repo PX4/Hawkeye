@@ -234,6 +234,8 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
                         recv->state.lat = gpi.lat;   // degE7
                         recv->state.lon = gpi.lon;   // degE7
                         recv->state.alt = gpi.alt;   // mm MSL (same as HIL alt)
+                        recv->state.relative_alt = gpi.relative_alt;  // mm above home
+                        recv->state.relative_alt_valid = true;
                         recv->state.vx = gpi.vx;     // cm/s NED
                         recv->state.vy = gpi.vy;
                         recv->state.vz = gpi.vz;

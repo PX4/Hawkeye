@@ -16,7 +16,9 @@ typedef struct {
     float quaternion[4]; // w, x, y, z
     int32_t lat;         // degE7
     int32_t lon;         // degE7
-    int32_t alt;         // mm
+    int32_t alt;         // mm (AMSL)
+    int32_t relative_alt;        // mm above home (GLOBAL_POSITION_INT); valid only if relative_alt_valid
+    bool relative_alt_valid;     // true when relative_alt carries a real "above home" height
     int16_t vx, vy, vz;          // cm/s, NED
     uint16_t ind_airspeed;       // cm/s
     uint16_t true_airspeed;      // cm/s

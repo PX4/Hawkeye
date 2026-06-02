@@ -532,9 +532,12 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
         // Fall back to current altitude after ~1 second (20 HIL updates at 22Hz).
         v->origin_wait_count++;
         if (home && home->valid && (lat != 0.0 || lon != 0.0)) {
-            v->lat0 = lat;
-            v->lon0 = lon;
-            v->alt0 = alt;
+            // Latch the origin to HOME (the takeoff/ground point), not the current
+            // sample. Otherwise reconnecting to a live session mid-flight latches the
+            // airborne position as the origin and the vehicle renders on the floor.
+            v->lat0 = home->lat * 1e-7 * (M_PI / 180.0);
+            v->lon0 = home->lon * 1e-7 * (M_PI / 180.0);
+            v->alt0 = home->alt * 1e-3;
             v->origin_set = true;
 
         } else if (v->origin_wait_count > 20) {
@@ -553,7 +556,12 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     // Local NED position relative to origin
     double jmav_x = EARTH_RADIUS * (lat - v->lat0);                // North
     double jmav_y = EARTH_RADIUS * (lon - v->lon0) * cos(v->lat0); // East
-    double jmav_z = alt - v->alt0;                                   // Up
+    // Prefer telemetry's "above home" altitude when present (GLOBAL_POSITION_INT). It is
+    // correct regardless of the latched origin, so reconnecting mid-flight no longer renders
+    // the vehicle on the floor. HIL (no relative_alt) falls back to MSL minus the origin.
+    double jmav_z = state->relative_alt_valid
+        ? state->relative_alt * 1e-3
+        : alt - v->alt0;                                             // Up
 
     // NED frame → Raylib (X=right, Y=up, Z=back) + grid deconfliction offset
     v->position.x = (float)jmav_y + v->grid_offset.x;
@@ -593,7 +601,9 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
                             (float)state->vy * state->vy) * 0.01f;
     v->vertical_speed = -state->vz * 0.01f;
     v->airspeed = state->ind_airspeed * 0.01f;
-    v->altitude_rel = (float)(alt - v->alt0);
+    v->altitude_rel = (float)(state->relative_alt_valid
+        ? state->relative_alt * 1e-3
+        : alt - v->alt0);
 
     // Adaptive trail sampling: record a point when direction changes (tight turns
     // get dense coverage) or after a max distance on straight runs (so they don't
