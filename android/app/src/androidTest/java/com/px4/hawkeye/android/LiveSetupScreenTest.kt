@@ -8,6 +8,7 @@ import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 import com.px4.hawkeye.feature.live.presentation.LiveSetupAction
 import com.px4.hawkeye.feature.live.presentation.LiveSetupScreen
 import com.px4.hawkeye.feature.live.presentation.LiveSetupState
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -69,7 +70,7 @@ class LiveSetupScreenTest {
             }
         }
         composeRule.onNodeWithText("Start live session").performClick()
-        assert(actions.contains(LiveSetupAction.OnStartLiveClicked))
+        assertTrue(actions.contains(LiveSetupAction.OnStartLiveClicked))
     }
 
     @Test
@@ -85,6 +86,6 @@ class LiveSetupScreenTest {
             }
         }
         composeRule.onNodeWithText("Retry").performClick()
-        assert(actions.contains(LiveSetupAction.OnRefreshIp))
+        assertTrue(actions.contains(LiveSetupAction.OnRefreshIp))
     }
 }
