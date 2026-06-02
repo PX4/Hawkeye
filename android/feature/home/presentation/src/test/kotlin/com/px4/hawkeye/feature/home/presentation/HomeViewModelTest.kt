@@ -36,11 +36,11 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `connect click emits NavigateToLive`() = runTest {
+    fun `connect click emits ConnectLive`() = runTest {
         val vm = HomeViewModel(repo)
         vm.events.test {
             vm.onAction(HomeAction.OnConnectClicked)
-            assertThat(awaitItem()).isEqualTo(HomeEvent.NavigateToLive)
+            assertThat(awaitItem()).isEqualTo(HomeEvent.ConnectLive)
         }
     }
 

@@ -36,6 +36,7 @@ import com.px4.hawkeye.core.designsystem.HawkeyeDimens
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 import com.px4.hawkeye.core.designsystem.MediaTitleShadow
 import com.px4.hawkeye.core.designsystem.glassSurface
+import com.px4.hawkeye.core.presentation.LivePlaybackLauncher
 import com.px4.hawkeye.core.presentation.ObserveAsEvents
 import com.px4.hawkeye.core.presentation.ReplayPlaybackLauncher
 import com.px4.hawkeye.core.presentation.asString
@@ -52,9 +53,9 @@ internal fun usesWidePane(windowSizeClass: WindowSizeClass): Boolean =
 @Composable
 fun HomeRoot(
     onNavigateToReplay: () -> Unit,
-    onNavigateToLive: () -> Unit,
     viewModel: HomeViewModel = koinViewModel(),
     playbackLauncher: ReplayPlaybackLauncher = koinInject(),
+    liveLauncher: LivePlaybackLauncher = koinInject(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -62,7 +63,7 @@ fun HomeRoot(
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {
             HomeEvent.NavigateToReplay -> onNavigateToReplay()
-            HomeEvent.NavigateToLive -> onNavigateToLive()
+            HomeEvent.ConnectLive -> liveLauncher.launch(context)
             is HomeEvent.PlayRecent -> playbackLauncher.launch(context, event.entryId)
             is HomeEvent.ShowError ->
                 Toast.makeText(context, event.text.asString(context), Toast.LENGTH_SHORT).show()

@@ -4,7 +4,8 @@ import com.px4.hawkeye.core.presentation.UiText
 
 sealed interface HomeEvent {
     data object NavigateToReplay : HomeEvent
-    data object NavigateToLive : HomeEvent
+    /** Connect to a simulator: launch the renderer in live mode. */
+    data object ConnectLive : HomeEvent
 
     /** A recent log was staged into the inbox; hand off to the renderer. */
     data class PlayRecent(val entryId: String) : HomeEvent

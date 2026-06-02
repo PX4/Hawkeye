@@ -35,7 +35,7 @@ class HomeViewModel(
     fun onAction(action: HomeAction) {
         when (action) {
             HomeAction.OnReplayClicked -> viewModelScope.launch { _events.send(HomeEvent.NavigateToReplay) }
-            HomeAction.OnConnectClicked -> viewModelScope.launch { _events.send(HomeEvent.NavigateToLive) }
+            HomeAction.OnConnectClicked -> viewModelScope.launch { _events.send(HomeEvent.ConnectLive) }
             is HomeAction.OnRecentClicked -> playRecent(action.id)
         }
     }

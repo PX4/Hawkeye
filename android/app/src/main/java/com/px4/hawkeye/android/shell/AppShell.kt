@@ -107,11 +107,12 @@ fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
                     addEntryProvider(HomeKey::class, { it.toString() }) {
                         HomeRoot(
                             onNavigateToReplay = { backStacks.push(ReplayKey) },
-                            onNavigateToLive = { backStacks.push(LiveKey) },
                         )
                     }
                     // Replay's NavEntry is contributed by the feature's EntryProviderInstaller
-                    // (collected into `installers` below). Live is still a placeholder.
+                    // (collected into `installers` below). The Live entry is registered but
+                    // currently unreachable: Connect launches the renderer in live mode directly
+                    // (see HomeRoot). The full Live screen lands in a later slice.
                     addEntryProvider(LiveKey::class, { it.toString() }) {
                         ComingSoonScreen(
                             titleRes = R.string.shell_live_title,
