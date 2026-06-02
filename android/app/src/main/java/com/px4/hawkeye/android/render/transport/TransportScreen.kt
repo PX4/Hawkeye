@@ -12,9 +12,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -26,7 +25,6 @@ import com.px4.hawkeye.core.designsystem.HawkeyeAlpha
 import com.px4.hawkeye.core.designsystem.HawkeyeDimens
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 import com.px4.hawkeye.core.designsystem.glassSurface
-import kotlinx.coroutines.delay
 import java.util.Locale
 
 /**
@@ -35,16 +33,8 @@ import java.util.Locale
  */
 @Composable
 fun TransportRoot(viewModel: TransportViewModel) {
-    val state by viewModel.state.collectAsState()
-
-    // Pull native playback status on a cadence; the engine has no push channel.
-    LaunchedEffect(Unit) {
-        while (true) {
-            viewModel.refresh()
-            delay(TransportViewModel.POLL_INTERVAL_MS)
-        }
-    }
-
+    // The ViewModel owns the native-status polling loop; the Root just collects state.
+    val state by viewModel.state.collectAsStateWithLifecycle()
     TransportScreen(state = state, onAction = viewModel::onAction)
 }
 

@@ -44,6 +44,11 @@ if(UNIX AND NOT APPLE)
 endif()
 add_test(NAME ui_logic COMMAND test_ui_logic)
 
+# Live marker parser tests (inbox .live "<millis> <port>" — no Raylib needed)
+add_executable(test_live_marker test_live_marker.c)
+target_include_directories(test_live_marker PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME live_marker COMMAND test_live_marker)
+
 # OBJ model validation (catches missing texcoords that crash Raylib)
 add_executable(test_obj_models test_obj_models.c)
 target_compile_definitions(test_obj_models PRIVATE MODELS_DIR="${CMAKE_SOURCE_DIR}/models")
