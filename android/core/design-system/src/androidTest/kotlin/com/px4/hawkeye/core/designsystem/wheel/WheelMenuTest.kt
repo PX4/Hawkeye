@@ -86,12 +86,17 @@ class WheelMenuTest {
         }
         composeRule.onNodeWithTag(WheelMenuTestTags.WHEEL).assertDoesNotExist()
 
-        // Immediate drag: moves beyond touch slop before the timeout, so it is a pan/orbit.
+        // Drag past touch slop, then hold past the timeout: a pan/orbit, not a wheel
+        // press. awaitLongPressOrCancellation alone would still fire here (it never
+        // cancels on movement); the producer's own slop check keeps the wheel closed.
         composeRule.onNodeWithTag(HOST).performTouchInput {
             down(center)
             moveBy(Offset(300f, 0f))
-            up()
         }
+        composeRule.mainClock.advanceTimeBy(LONG_PRESS_WAIT_MS)
+        composeRule.onNodeWithTag(WheelMenuTestTags.WHEEL).assertDoesNotExist()
+
+        composeRule.onNodeWithTag(HOST).performTouchInput { up() }
         composeRule.onNodeWithTag(WheelMenuTestTags.WHEEL).assertDoesNotExist()
     }
 
