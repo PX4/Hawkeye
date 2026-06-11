@@ -118,6 +118,48 @@ static void test_pinch_from_idle_never_pends(void)
     printf("  PASS pinch_from_idle_never_pends\n");
 }
 
+static void test_second_finger_during_pending_rejects(void)
+{
+    wheel_gesture_t g = {0};
+    hold_frames(&g, 3, 100.0f, 100.0f);
+    assert(g.phase == WHEEL_PENDING);
+    wheel_gesture_update(&g, 2, 100.0f, 100.0f, FRAME);
+    assert(g.phase == WHEEL_REJECTED);
+    assert(g.release_seq == 0);
+    printf("  PASS second_finger_during_pending_rejects\n");
+}
+
+static void test_exact_slop_stays_pending(void)
+{
+    wheel_gesture_t g = {0};
+    hold_frames(&g, 3, 100.0f, 100.0f);
+    /* The slop check is a strict >: moving by exactly WHEEL_SLOP_PX is a hold. */
+    wheel_gesture_update(&g, 1, 100.0f + WHEEL_SLOP_PX, 100.0f, FRAME);
+    assert(g.phase == WHEEL_PENDING);
+    printf("  PASS exact_slop_stays_pending\n");
+}
+
+static void test_second_gesture_cycle(void)
+{
+    wheel_gesture_t g = {0};
+    /* First cycle: open at (100, 100), release at (140, 160). */
+    hold_frames(&g, frames_to_open(), 100.0f, 100.0f);
+    wheel_gesture_update(&g, 1, 140.0f, 160.0f, FRAME);
+    wheel_gesture_update(&g, 0, 0.0f, 0.0f, FRAME);
+    assert(g.phase == WHEEL_IDLE);
+    assert(g.release_seq == 1);
+    /* Second cycle on the same struct: a fresh hold elsewhere reopens cleanly. */
+    hold_frames(&g, frames_to_open(), 300.0f, 200.0f);
+    assert(g.phase == WHEEL_OPEN);
+    assert(g.center_x == 300.0f && g.center_y == 200.0f);
+    wheel_gesture_update(&g, 1, 320.0f, 260.0f, FRAME);
+    wheel_gesture_update(&g, 0, 0.0f, 0.0f, FRAME);
+    assert(g.phase == WHEEL_IDLE);
+    assert(g.release_seq == 2);
+    assert(g.release_x == 320.0f && g.release_y == 260.0f);
+    printf("  PASS second_gesture_cycle\n");
+}
+
 int main(void)
 {
     printf("wheel_gesture tests:\n");
@@ -130,6 +172,9 @@ int main(void)
     test_release_latches_position_and_bumps_seq();
     test_second_finger_cancels_without_selection();
     test_pinch_from_idle_never_pends();
+    test_second_finger_during_pending_rejects();
+    test_exact_slop_stays_pending();
+    test_second_gesture_cycle();
     printf("All wheel_gesture tests passed.\n");
     return 0;
 }

@@ -35,9 +35,29 @@ class WheelMenuGeometryTest {
     }
 
     @Test
+    fun `finger just left of twelve o'clock maps to slice 5 of 6`() {
+        // Wrap-around region: angles just shy of 12 o'clock belong to the last slice.
+        val idx = WheelMenuGeometry.hoveredIndex(center, Offset(490f, 300f), 6, 50f)
+        assertThat(idx).isEqualTo(5)
+    }
+
+    @Test
+    fun `finger between nine and twelve o'clock maps to slice 5 of 6`() {
+        val idx = WheelMenuGeometry.hoveredIndex(center, Offset(300f, 300f), 6, 50f)
+        assertThat(idx).isEqualTo(5)
+    }
+
+    @Test
     fun `finger inside the hub dead zone hovers nothing`() {
         val idx = WheelMenuGeometry.hoveredIndex(center, Offset(510f, 490f), 6, 50f)
         assertThat(idx).isNull()
+    }
+
+    @Test
+    fun `finger exactly on the dead-zone radius hovers a slice`() {
+        // The dead zone is a strict <: a distance equal to the radius already selects.
+        val idx = WheelMenuGeometry.hoveredIndex(center, Offset(550f, 500f), 6, 50f)
+        assertThat(idx).isEqualTo(1)
     }
 
     @Test
@@ -71,6 +91,13 @@ class WheelMenuGeometryTest {
     fun `clampCenter pushes an edge press fully on screen`() {
         val clamped = WheelMenuGeometry.clampCenter(Offset(10f, 990f), 200f, 2000f, 1000f)
         assertThat(clamped).isEqualTo(Offset(200f, 800f))
+    }
+
+    @Test
+    fun `clampCenter biases left and top when the surface is smaller than the wheel`() {
+        // Degenerate surface: width - radius < radius. Must clamp, not throw.
+        val clamped = WheelMenuGeometry.clampCenter(Offset(10f, 990f), 200f, 300f, 250f)
+        assertThat(clamped).isEqualTo(Offset(200f, 200f))
     }
 
     @Test
