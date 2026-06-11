@@ -134,4 +134,31 @@ class WheelMenuStateTest {
         state.move(Offset(1400f, 500f)) // 3 o'clock with 4 slices: slice 1
         assertThat(state.hoveredIndex).isEqualTo(1)
     }
+
+    @Test
+    fun `move into the upper left quadrant hovers the last slice`() {
+        val state = state()
+        state.open(Offset(1000f, 500f))
+        state.move(Offset(800f, 300f)) // between 9 and 12 o'clock: slice 5 of 6
+        assertThat(state.hoveredIndex).isEqualTo(5)
+    }
+
+    @Test
+    fun `swapping items while open clears the hover and blocks a stale release`() {
+        val state = state()
+        state.open(Offset(1000f, 500f))
+        state.move(Offset(800f, 300f)) // slice 5 of 6
+        state.items = items(count = 2) // index 5 no longer exists
+        assertThat(state.hoveredIndex).isNull()
+        assertThat(state.release()).isNull()
+    }
+
+    @Test
+    fun `move never hovers before the hit geometry is synced`() {
+        // deadZoneRadiusPx left at 0: everything is dead zone until WheelMenu syncs it.
+        val state = WheelMenuState(items())
+        state.open(Offset(1000f, 500f))
+        state.move(Offset(1400f, 500f))
+        assertThat(state.hoveredIndex).isNull()
+    }
 }

@@ -7,7 +7,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.px4.hawkeye.core.designsystem.glassSurface
 
-/** One wheel slice: a label plus the accent color of its glyph dot. */
+/**
+ * One wheel slice: a label plus the accent color of its glyph dot.
+ *
+ * @property label Slice text, drawn on a single line; keep it short (a word or two).
+ * @property accentColor Color of the glyph dot above the label.
+ */
 data class WheelMenuItem(
     val label: String,
     val accentColor: Color,

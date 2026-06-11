@@ -17,6 +17,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.tooling.preview.Preview
@@ -25,6 +28,7 @@ import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 import kotlin.math.cos
 import kotlin.math.sin
 
+/** Public so consumer UI tests can assert on the wheel; the tagged node exists only while the wheel is open. */
 object WheelMenuTestTags {
     const val WHEEL = "wheel_menu"
 }
@@ -39,6 +43,10 @@ object WheelMenuTestTags {
  * The composable fills its parent and draws nothing while the wheel is closed; it also
  * syncs its measured size and hit radii into [state] so producer-side selection math and
  * the drawing always agree.
+ *
+ * Accessibility: the wheel surface exposes [selectHint] as its content description and
+ * the hovered slice's label as its state description. Full accessibility actions (e.g.
+ * per-slice custom actions) are the consumer's integration responsibility for now.
  */
 @Composable
 fun WheelMenu(
@@ -47,13 +55,9 @@ fun WheelMenu(
     modifier: Modifier = Modifier,
     style: WheelMenuStyle = WheelMenuDefaults.style(),
 ) {
-    val density = LocalDensity.current
-    SideEffect {
-        state.outerRadiusPx = with(density) { style.outerRadius.toPx() }
-        state.deadZoneRadiusPx = with(density) { style.hubRadius.toPx() }
-    }
+    SyncWheelHitGeometry(state, style)
 
-    val textMeasurer = rememberTextMeasurer()
+    val textMeasurer = rememberTextMeasurer(cacheSize = state.items.size + 2)
     val labelStyle = MaterialTheme.typography.labelLarge
     val hubStyle = MaterialTheme.typography.titleMedium
     val hintStyle = MaterialTheme.typography.labelSmall
@@ -64,15 +68,24 @@ fun WheelMenu(
             .onSizeChanged { state.bounds = Size(it.width.toFloat(), it.height.toFloat()) },
     ) {
         if (!state.isOpen || state.items.isEmpty()) return@Box
-        val items = state.items
-        val center = state.center
-        val hoveredIndex = state.hoveredIndex
 
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .testTag(WheelMenuTestTags.WHEEL),
+                .testTag(WheelMenuTestTags.WHEEL)
+                .semantics {
+                    contentDescription = selectHint
+                    state.hoveredIndex?.let { hovered ->
+                        state.items.getOrNull(hovered)?.let { stateDescription = it.label }
+                    }
+                },
         ) {
+            // Read items/center/hover here, inside the draw lambda, so a hover change
+            // invalidates only the draw phase instead of recomposing the widget.
+            val items = state.items
+            val center = state.center
+            val hoveredIndex = state.hoveredIndex
+
             val outerR = style.outerRadius.toPx()
             val thickness = style.ringThickness.toPx()
             val midR = outerR - thickness / 2f
@@ -124,7 +137,7 @@ fun WheelMenu(
                     radius = style.glyphRadius.toPx(),
                     center = Offset(gx, gy - style.glyphLift.toPx()),
                 )
-                val label = textMeasurer.measure(item.label, labelStyle)
+                val label = textMeasurer.measure(item.label, labelStyle, maxLines = 1)
                 drawText(
                     textLayoutResult = label,
                     color = if (hovered) style.hoveredLabelColor else style.labelColor,
@@ -165,6 +178,19 @@ fun WheelMenu(
                 ),
             )
         }
+    }
+}
+
+/**
+ * Syncs the px hit radii from [style] into [state] after every successful composition,
+ * so producer-side selection math always agrees with what the widget draws.
+ */
+@Composable
+private fun SyncWheelHitGeometry(state: WheelMenuState, style: WheelMenuStyle) {
+    val density = LocalDensity.current
+    SideEffect {
+        state.outerRadiusPx = with(density) { style.outerRadius.toPx() }
+        state.deadZoneRadiusPx = with(density) { style.hubRadius.toPx() }
     }
 }
 
