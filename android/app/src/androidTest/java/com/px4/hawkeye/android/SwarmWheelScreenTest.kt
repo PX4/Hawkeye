@@ -61,6 +61,19 @@ class SwarmWheelScreenTest {
     }
 
     @Test
+    fun tornSnapshotWithStaleOpenPhaseDoesNotReopenAfterRelease() {
+        // The native publish is not a single atomic block: a poll can pair a stale OPEN
+        // phase with a fresh release seq. The release must win and the wheel stay closed.
+        robot
+            .setContent()
+            .open(CENTER)
+            .moveTo(RIGHT_SLICE)
+            .releaseKeepingOpenPhase(RIGHT_SLICE)
+            .assertWheelGone()
+            .assertSelections(0)
+    }
+
+    @Test
     fun rejectedGestureClosesWithoutSelection() {
         robot
             .setContent()
@@ -137,6 +150,15 @@ private class SwarmWheelRobot(private val rule: ComposeContentTestRule) {
     fun release(at: Offset) = gesture {
         it.copy(
             phase = SwarmWheelSnapshot.PHASE_IDLE,
+            releaseSeq = it.releaseSeq + 1,
+            releaseX = at.x, releaseY = at.y,
+        )
+    }
+
+    /** A torn read: the seq bumped but the phase field still carries the stale OPEN. */
+    fun releaseKeepingOpenPhase(at: Offset) = gesture {
+        it.copy(
+            phase = SwarmWheelSnapshot.PHASE_OPEN,
             releaseSeq = it.releaseSeq + 1,
             releaseX = at.x, releaseY = at.y,
         )

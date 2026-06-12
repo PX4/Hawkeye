@@ -125,6 +125,28 @@ class LibraryFileStoreTest {
     }
 
     @Test
+    fun `a copy failure mid-batch leaves the previous inbox fully intact`(@TempDir dir: File) {
+        val store = store(dir, now = 4_242L)
+        store.write(ByteArrayInputStream("old-current".toByteArray()), "old.ulg")
+        store.write(ByteArrayInputStream("old-swarm".toByteArray()), "old2.ulg")
+        store.stage(listOf("old.ulg", "old2.ulg"))
+        // A directory passes the exists() pre-check but fails to open as a stream,
+        // simulating an I/O failure after the first file of the batch copied.
+        store.write(ByteArrayInputStream("good".toByteArray()), "good.ulg")
+        File(File(dir, "library"), "broken.ulg").mkdirs()
+
+        val later = LibraryFileStore(dir, clock = { 9_999L })
+        val result = later.stage(listOf("good.ulg", "broken.ulg"))
+
+        assertThat(result is Result.Error).isTrue()
+        val inbox = File(dir, "inbox")
+        assertThat(File(inbox, "current.ulg").readText()).isEqualTo("old-current")
+        assertThat(File(inbox, "swarm_1.ulg").readText()).isEqualTo("old-swarm")
+        assertThat(File(inbox, ".ready").readText()).isEqualTo("4242 2")
+        assertThat(inbox.listFiles()!!.none { it.name.endsWith(".tmp") }).isTrue()
+    }
+
+    @Test
     fun `staging an empty list fails with NOT_FOUND`(@TempDir dir: File) {
         val result = store(dir).stage(emptyList())
 

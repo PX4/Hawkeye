@@ -512,11 +512,13 @@ static int try_load_inbox_swarm(const scene_t *scene, vehicle_t *vehicles,
         }
     }
 
-    // Commit: swap the session over.
+    // Commit: swap the session over. The wheel machine resets too, so a gesture phase
+    // from the old session can never linger into one where it is no longer ticked.
     for (int i = 0; i < g_source_count; i++) data_source_close(&g_sources[i]);
     for (int i = 0; i < count; i++) g_sources[i] = new_sources[i];
     g_source_count = count;
     g_selected = 0;
+    g_wheel = (wheel_gesture_t){0};
     g_last_ready_token = token;
 
     // Vehicles: init slots a larger session needs, release slots a smaller one

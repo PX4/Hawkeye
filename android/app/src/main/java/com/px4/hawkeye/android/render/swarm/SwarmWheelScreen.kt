@@ -2,6 +2,7 @@ package com.px4.hawkeye.android.render.swarm
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -50,9 +51,12 @@ fun SwarmWheelScreen(
         )
     }
     val wheelState = rememberWheelMenuState(resolvedItems)
-    // Guarded swap: assigning items while open clears the hover, so only push a real
-    // session change, not every recomposition's structurally-equal copy.
-    if (wheelState.items != resolvedItems) wheelState.items = resolvedItems
+    // Guarded swap, applied after composition (snapshot writes don't belong in the
+    // composition phase): assigning items while open clears the hover, so only push a
+    // real session change, not every recomposition's structurally-equal copy.
+    SideEffect {
+        if (wheelState.items != resolvedItems) wheelState.items = resolvedItems
+    }
 
     ProjectGestureIntoWheel(state.gesture, wheelState, onAction)
 
@@ -86,6 +90,10 @@ private fun ProjectGestureIntoWheel(
                 wheelState.move(Offset(gesture.releaseX, gesture.releaseY))
                 wheelState.release()?.let { onAction(SwarmWheelAction.OnDroneSelected(it)) }
             }
+            // The native publish is not one atomic block, so this snapshot's phase can be
+            // a stale OPEN paired with the fresh seq. The release consumed the gesture;
+            // letting the phase branch run would reopen the wheel for one poll cycle.
+            return@LaunchedEffect
         }
         when (gesture.phase) {
             SwarmWheelSnapshot.PHASE_OPEN -> {

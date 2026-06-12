@@ -48,8 +48,12 @@ class LibraryFileStore(
      * Index 0 keeps the legacy `current.ulg` name; indices 1..n-1 become `swarm_<i>.ulg`. A
      * single file writes the legacy bare-millis token; several write `"<millis> <count>"` for
      * the native swarm loader (an older binary's strtoll stops at the space and still reads
-     * the millis). All sources are validated before the inbox is touched, so a failed batch
-     * never clobbers the previous session.
+     * the millis).
+     *
+     * A failed batch never clobbers the previous session: every payload is copied to a
+     * `.tmp` first and the live names are only renamed over (and stale extras deleted)
+     * after the whole batch has copied, so any I/O failure leaves the inbox exactly as the
+     * still-unchanged `.ready` token describes it.
      */
     fun stage(fileNames: List<String>): EmptyResult<DataError.Local> = runCatching {
         if (fileNames.isEmpty()) throw FileNotFoundException("empty stage batch")
@@ -59,18 +63,31 @@ class LibraryFileStore(
             }
         }
         inboxDir.mkdirs()
-        inboxDir.listFiles { file -> SWARM_FILE_PATTERN.matches(file.name) }
-            ?.forEach { it.delete() }
-        sources.forEachIndexed { index, source ->
-            val targetName = if (index == 0) "current.ulg" else "swarm_$index.ulg"
-            val target = File(inboxDir, targetName)
-            val tmp = File(inboxDir, "$targetName.tmp")
-            source.inputStream().use { input -> tmp.outputStream().use { output -> input.copyTo(output) } }
-            if (!tmp.renameTo(target)) {
-                tmp.delete()
-                throw IOException("renameTo $target failed")
+        val targets = List(fileNames.size) { index ->
+            File(inboxDir, if (index == 0) "current.ulg" else "swarm_$index.ulg")
+        }
+        val tmps = targets.map { File(inboxDir, "${it.name}.tmp") }
+        try {
+            sources.forEachIndexed { index, source ->
+                source.inputStream().use { input ->
+                    tmps[index].outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        } catch (e: Throwable) {
+            tmps.forEach { it.delete() }
+            throw e
+        }
+        // The whole batch is on disk; same-filesystem renames don't fail for space.
+        tmps.forEachIndexed { index, tmp ->
+            if (!tmp.renameTo(targets[index])) {
+                tmps.forEach { it.delete() }
+                throw IOException("renameTo ${targets[index]} failed")
             }
         }
+        // Drop swarm payloads beyond the new batch only after it is fully in place.
+        inboxDir.listFiles { file -> SWARM_FILE_PATTERN.matches(file.name) }
+            ?.filterNot { it in targets }
+            ?.forEach { it.delete() }
         val token = clock().toString()
         File(inboxDir, ".ready")
             .writeText(if (fileNames.size == 1) token else "$token ${fileNames.size}")

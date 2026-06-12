@@ -38,6 +38,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.px4.hawkeye.core.designsystem.HawkeyeAlpha
@@ -82,6 +83,12 @@ fun ReplayLibraryScreen(
     onAction: (ReplayLibraryAction) -> Unit,
     onBack: () -> Unit,
 ) {
+    // System back leaves selection mode first (standard selection UX); only a second
+    // back navigates away from the library.
+    BackHandler(enabled = state.isSelectionMode) {
+        onAction(ReplayLibraryAction.OnToggleSelectionMode)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(

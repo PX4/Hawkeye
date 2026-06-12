@@ -118,6 +118,19 @@ class LibrarySwarmSelectionTest {
         }
     }
 
+    @Test
+    fun systemBackExitsSelectionModeBeforeLeavingTheLibrary() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            robot
+                .openLibrary()
+                .enterSelectionMode()
+                .clickEntry(ALPHA)
+                .pressBack()
+                .assertTitle("Replay library")
+                .assertCta("Open file")
+        }
+    }
+
     private companion object {
         const val ALPHA = "swarm_alpha.ulg"
         const val BRAVO = "swarm_bravo.ulg"
@@ -149,6 +162,12 @@ private class LibrarySelectionRobot(private val rule: ComposeTestRule) {
 
     fun exitSelectionMode() = apply {
         rule.onNodeWithContentDescription("Exit selection").performClick()
+    }
+
+    fun pressBack() = apply {
+        rule.waitForIdle()
+        androidx.test.espresso.Espresso.pressBack()
+        rule.waitForIdle()
     }
 
     fun clickEntry(displayName: String) = apply {
