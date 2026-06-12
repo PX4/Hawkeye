@@ -106,17 +106,37 @@ class RoomReplayLibraryRepositoryTest {
     fun `stageForPlayback stages the entry's payload`() = runTest {
         dao.seed(entity("a"))
 
-        val result = repository().stageForPlayback("a")
+        val result = repository().stageForPlayback(listOf("a"))
 
         assertThat(result).isEqualTo(Result.Success(Unit))
-        assertThat(files.stagedFileNames).containsExactly("a.ulg")
+        assertThat(files.stagedBatches).containsExactly(listOf("a.ulg"))
+    }
+
+    @Test
+    fun `stageForPlayback resolves payloads preserving the caller's id order`() = runTest {
+        dao.seed(entity("a"), entity("b"), entity("c"))
+
+        val result = repository().stageForPlayback(listOf("b", "a", "c"))
+
+        assertThat(result).isEqualTo(Result.Success(Unit))
+        assertThat(files.stagedBatches).containsExactly(listOf("b.ulg", "a.ulg", "c.ulg"))
     }
 
     @Test
     fun `stageForPlayback returns NOT_FOUND for an unknown id`() = runTest {
-        val result = repository().stageForPlayback("missing")
+        val result = repository().stageForPlayback(listOf("missing"))
 
         assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
+    }
+
+    @Test
+    fun `stageForPlayback with any unknown id fails before staging anything`() = runTest {
+        dao.seed(entity("a"))
+
+        val result = repository().stageForPlayback(listOf("a", "missing"))
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
+        assertThat(files.stagedBatches).isEqualTo(emptyList<List<String>>())
     }
 
     private fun entity(id: String, importedAt: Long = 0L) = LibraryEntryEntity(

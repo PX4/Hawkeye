@@ -8,6 +8,9 @@ data class ReplayLibraryState(
     val isLoading: Boolean = true,
     val isImporting: Boolean = false,
     val pendingDelete: LibraryEntryUi? = null,
+    val isSelectionMode: Boolean = false,
+    /** Click order, not list order: it becomes the swarm's drone order. */
+    val selectedIds: List<String> = emptyList(),
 )
 
 /** Presentation view of a library entry, with size/date already formatted for display. */

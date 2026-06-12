@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.px4.hawkeye.core.domain.onFailure
 import com.px4.hawkeye.core.domain.onSuccess
+import com.px4.hawkeye.core.presentation.UiText
 import com.px4.hawkeye.core.presentation.toUiText
 import com.px4.hawkeye.core.domain.LibraryEntry
 import com.px4.hawkeye.core.domain.ReplayLibraryRepository
@@ -39,7 +40,9 @@ class ReplayLibraryViewModel(
 
             is ReplayLibraryAction.OnFilePicked -> action.uri?.let(::importFile)
 
-            is ReplayLibraryAction.OnEntryClicked -> stageAndLaunch(action.id)
+            is ReplayLibraryAction.OnEntryClicked ->
+                if (_state.value.isSelectionMode) toggleSelection(action.id)
+                else stageAndLaunch(listOf(action.id))
 
             is ReplayLibraryAction.OnDeleteRequested ->
                 _state.update { state -> state.copy(pendingDelete = state.entries.find { it.id == action.id }) }
@@ -48,7 +51,39 @@ class ReplayLibraryViewModel(
 
             ReplayLibraryAction.OnDismissDelete ->
                 _state.update { it.copy(pendingDelete = null) }
+
+            ReplayLibraryAction.OnToggleSelectionMode ->
+                _state.update {
+                    it.copy(isSelectionMode = !it.isSelectionMode, selectedIds = emptyList())
+                }
+
+            ReplayLibraryAction.OnPlayTogetherClicked -> playTogether()
         }
+    }
+
+    private fun toggleSelection(id: String) {
+        val selected = _state.value.selectedIds
+        when {
+            id in selected ->
+                _state.update { it.copy(selectedIds = it.selectedIds - id) }
+
+            selected.size >= MAX_SWARM ->
+                viewModelScope.launch {
+                    _events.send(
+                        ReplayLibraryEvent.ShowError(
+                            UiText.StringResource(R.string.replay_swarm_cap),
+                        ),
+                    )
+                }
+
+            else -> _state.update { it.copy(selectedIds = it.selectedIds + id) }
+        }
+    }
+
+    private fun playTogether() {
+        val ids = _state.value.selectedIds
+        if (ids.size < 2) return
+        stageAndLaunch(ids)
     }
 
     private fun importFile(uri: String) {
@@ -59,10 +94,16 @@ class ReplayLibraryViewModel(
         }
     }
 
-    private fun stageAndLaunch(id: String) {
+    private fun stageAndLaunch(ids: List<String>) {
         viewModelScope.launch {
-            repository.stageForPlayback(id)
-                .onSuccess { _events.send(ReplayLibraryEvent.LaunchReplay(id)) }
+            repository.stageForPlayback(ids)
+                .onSuccess {
+                    val labels = ids.map { id ->
+                        _state.value.entries.find { it.id == id }?.displayName.orEmpty()
+                    }
+                    _state.update { it.copy(isSelectionMode = false, selectedIds = emptyList()) }
+                    _events.send(ReplayLibraryEvent.LaunchReplay(ids, labels))
+                }
                 .onFailure { _events.send(ReplayLibraryEvent.ShowError(it.toUiText())) }
         }
     }
@@ -73,5 +114,10 @@ class ReplayLibraryViewModel(
         viewModelScope.launch {
             repository.delete(pending.id).onFailure { _events.send(ReplayLibraryEvent.ShowError(it.toUiText())) }
         }
+    }
+
+    companion object {
+        /** Mirrors the native renderer's MAX_SWARM_VEHICLES (android_main.c). */
+        const val MAX_SWARM = 16
     }
 }

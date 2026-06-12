@@ -11,15 +11,15 @@ class FakeReplayFileManager : ReplayFileManager {
 
     val importedFileNames = mutableListOf<String>()
     val deletedFileNames = mutableListOf<String>()
-    val stagedFileNames = mutableListOf<String>()
+    val stagedBatches = mutableListOf<List<String>>()
 
     override fun import(uri: String, fileName: String): Result<Long, DataError.Local> {
         importedFileNames += fileName
         return importResult
     }
 
-    override fun stage(fileName: String): EmptyResult<DataError.Local> {
-        stagedFileNames += fileName
+    override fun stage(fileNames: List<String>): EmptyResult<DataError.Local> {
+        stagedBatches += fileNames
         return stageResult
     }
 

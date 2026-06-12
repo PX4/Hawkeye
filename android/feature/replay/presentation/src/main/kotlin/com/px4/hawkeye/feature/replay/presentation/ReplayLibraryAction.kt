@@ -7,4 +7,10 @@ sealed interface ReplayLibraryAction {
     data class OnDeleteRequested(val id: String) : ReplayLibraryAction
     data object OnConfirmDelete : ReplayLibraryAction
     data object OnDismissDelete : ReplayLibraryAction
+
+    /** Enter/exit multi-select; exiting clears the current selection. */
+    data object OnToggleSelectionMode : ReplayLibraryAction
+
+    /** Stage the selected logs as one swarm session and launch the renderer. */
+    data object OnPlayTogetherClicked : ReplayLibraryAction
 }

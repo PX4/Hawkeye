@@ -6,8 +6,15 @@ sealed interface ReplayLibraryEvent {
     /** Open the system document picker. */
     data object LaunchFilePicker : ReplayLibraryEvent
 
-    /** A log was staged into the inbox; hand off to the renderer. */
-    data class LaunchReplay(val entryId: String) : ReplayLibraryEvent
+    /**
+     * One or more logs were staged into the inbox; hand off to the renderer.
+     * [droneLabels] are the logs' display names in staged (drone) order, shown by the
+     * renderer's drone-selection wheel.
+     */
+    data class LaunchReplay(
+        val entryIds: List<String>,
+        val droneLabels: List<String>,
+    ) : ReplayLibraryEvent
 
     data class ShowError(val text: UiText) : ReplayLibraryEvent
 }

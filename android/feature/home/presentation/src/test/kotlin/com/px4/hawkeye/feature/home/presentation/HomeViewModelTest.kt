@@ -59,14 +59,14 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `recent click stages then emits PlayRecent`() = runTest {
+    fun `recent click stages then emits PlayRecent with the display name`() = runTest {
         repo.entriesFlow.value = listOf(LibraryEntry("1", "a.ulg", 1L, 0L))
         val vm = HomeViewModel(repo)
         vm.events.test {
             vm.onAction(HomeAction.OnRecentClicked("1"))
-            assertThat(awaitItem()).isEqualTo(HomeEvent.PlayRecent("1"))
+            assertThat(awaitItem()).isEqualTo(HomeEvent.PlayRecent(displayName = "a.ulg"))
         }
-        assertThat(repo.stagedIds).containsExactly("1")
+        assertThat(repo.stagedBatches).containsExactly(listOf("1"))
     }
 
     @Test

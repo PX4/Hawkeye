@@ -42,8 +42,11 @@ class HomeViewModel(
 
     private fun playRecent(id: String) {
         viewModelScope.launch {
-            repository.stageForPlayback(id)
-                .onSuccess { _events.send(HomeEvent.PlayRecent(id)) }
+            repository.stageForPlayback(listOf(id))
+                .onSuccess {
+                    val name = _state.value.recents.find { it.id == id }?.displayName.orEmpty()
+                    _events.send(HomeEvent.PlayRecent(displayName = name))
+                }
                 .onFailure { _events.send(HomeEvent.ShowError(it.toUiText())) }
         }
     }

@@ -148,7 +148,8 @@ fun WheelMenu(
                 )
             }
 
-            // Hub: hovered label echo + the release hint.
+            // Hub: hovered item echo (its hubLabel when set, else its label) + the
+            // release hint.
             drawCircle(color = style.hubColor, radius = hubR, center = center)
             drawCircle(
                 color = style.borderColor,
@@ -156,7 +157,8 @@ fun WheelMenu(
                 center = center,
                 style = Stroke(width = edgeW),
             )
-            val hubLabel = hoveredIndex?.let { items.getOrNull(it)?.label }
+            val hubLabel = hoveredIndex?.let { items.getOrNull(it) }
+                ?.let { it.hubLabel ?: it.label }
             if (hubLabel != null) {
                 val hub = textMeasurer.measure(hubLabel, hubStyle)
                 drawText(

@@ -12,10 +12,15 @@ import com.px4.hawkeye.core.designsystem.glassSurface
  *
  * @property label Slice text, drawn on a single line; keep it short (a word or two).
  * @property accentColor Color of the glyph dot above the label.
+ * @property hubLabel Optional detail text the hub echoes while this slice is hovered
+ *   (e.g. a file name when the slice label is just an index); falls back to [label].
+ *   Drawn on a single line — the producer should pre-truncate anything that could
+ *   outgrow the hub.
  */
 data class WheelMenuItem(
     val label: String,
     val accentColor: Color,
+    val hubLabel: String? = null,
 )
 
 /**

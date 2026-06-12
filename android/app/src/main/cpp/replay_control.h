@@ -37,7 +37,11 @@ typedef struct {
 extern replay_control_t g_replay_control;
 
 // Render-thread side, called from the android_main loop each frame.
-void replay_control_apply(struct data_source *ds, bool active);
+//
+// apply fans pause/speed/seek out to all `count` sources (a swarm session seeks and
+// pauses as one). Returns true when a seek request was consumed, so the caller can
+// reset every vehicle trail. publish snapshots the source the HUD/transport follow.
+bool replay_control_apply(struct data_source *sources, int count, bool active);
 void replay_control_publish(struct data_source *ds, bool active);
 
 // Publishes the live MAVLink connection snapshot (no-op outside live mode).

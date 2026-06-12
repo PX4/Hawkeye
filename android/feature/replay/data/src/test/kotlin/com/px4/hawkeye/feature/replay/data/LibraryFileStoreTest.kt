@@ -63,6 +63,76 @@ class LibraryFileStoreTest {
     }
 
     @Test
+    fun `staging several files writes current plus swarm files in order with a count token`(@TempDir dir: File) {
+        val store = store(dir, now = 4_242L)
+        store.write(ByteArrayInputStream("alpha".toByteArray()), "a.ulg")
+        store.write(ByteArrayInputStream("bravo".toByteArray()), "b.ulg")
+        store.write(ByteArrayInputStream("charlie".toByteArray()), "c.ulg")
+
+        val result = store.stage(listOf("a.ulg", "b.ulg", "c.ulg"))
+
+        assertThat(result).isEqualTo(Result.Success(Unit))
+        val inbox = File(dir, "inbox")
+        assertThat(File(inbox, "current.ulg").readText()).isEqualTo("alpha")
+        assertThat(File(inbox, "swarm_1.ulg").readText()).isEqualTo("bravo")
+        assertThat(File(inbox, "swarm_2.ulg").readText()).isEqualTo("charlie")
+        assertThat(File(inbox, ".ready").readText()).isEqualTo("4242 3")
+    }
+
+    @Test
+    fun `staging a single-element list keeps the legacy token format`(@TempDir dir: File) {
+        val store = store(dir, now = 4_242L)
+        store.write(ByteArrayInputStream("alpha".toByteArray()), "a.ulg")
+
+        val result = store.stage(listOf("a.ulg"))
+
+        assertThat(result).isEqualTo(Result.Success(Unit))
+        val inbox = File(dir, "inbox")
+        assertThat(File(inbox, "current.ulg").readText()).isEqualTo("alpha")
+        assertThat(File(inbox, ".ready").readText()).isEqualTo("4242")
+    }
+
+    @Test
+    fun `staging fewer files removes stale swarm files from a previous session`(@TempDir dir: File) {
+        val store = store(dir)
+        store.write(ByteArrayInputStream("alpha".toByteArray()), "a.ulg")
+        store.write(ByteArrayInputStream("bravo".toByteArray()), "b.ulg")
+        store.write(ByteArrayInputStream("charlie".toByteArray()), "c.ulg")
+        store.stage(listOf("a.ulg", "b.ulg", "c.ulg"))
+
+        store.stage(listOf("c.ulg", "a.ulg"))
+
+        val inbox = File(dir, "inbox")
+        assertThat(File(inbox, "current.ulg").readText()).isEqualTo("charlie")
+        assertThat(File(inbox, "swarm_1.ulg").readText()).isEqualTo("alpha")
+        assertThat(File(inbox, "swarm_2.ulg").exists()).isFalse()
+    }
+
+    @Test
+    fun `multi-staging with any missing file fails without touching the inbox`(@TempDir dir: File) {
+        val store = store(dir, now = 4_242L)
+        store.write(ByteArrayInputStream("alpha".toByteArray()), "a.ulg")
+        store.stage("a.ulg")
+
+        val later = LibraryFileStore(dir, clock = { 9_999L })
+        val result = later.stage(listOf("a.ulg", "ghost.ulg"))
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
+        val inbox = File(dir, "inbox")
+        assertThat(File(inbox, "current.ulg").readText()).isEqualTo("alpha")
+        assertThat(File(inbox, ".ready").readText()).isEqualTo("4242")
+        assertThat(File(inbox, "swarm_1.ulg").exists()).isFalse()
+    }
+
+    @Test
+    fun `staging an empty list fails with NOT_FOUND`(@TempDir dir: File) {
+        val result = store(dir).stage(emptyList())
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
+        assertThat(File(File(dir, "inbox"), ".ready").exists()).isFalse()
+    }
+
+    @Test
     fun `delete removes the library file`(@TempDir dir: File) {
         val store = store(dir)
         store.write(ByteArrayInputStream("x".toByteArray()), "a.ulg")
