@@ -55,7 +55,10 @@ class WheelMenuState(initialItems: List<WheelMenuItem>) {
     var hoveredIndex: Int? by mutableStateOf(null)
         private set
 
-    /** Synced from [WheelMenu]'s style; used to clamp [center]. */
+    /**
+     * Synced from [WheelMenu]'s style as the wheel's full visual radius (ring plus
+     * accent rim); used to clamp [center] so nothing draws off-screen.
+     */
     var outerRadiusPx: Float = 0f
 
     /**

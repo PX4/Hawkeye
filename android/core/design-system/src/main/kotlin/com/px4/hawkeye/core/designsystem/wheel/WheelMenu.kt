@@ -189,7 +189,12 @@ fun WheelMenu(
 private fun SyncWheelHitGeometry(state: WheelMenuState, style: WheelMenuStyle) {
     val density = LocalDensity.current
     SideEffect {
-        state.outerRadiusPx = with(density) { style.outerRadius.toPx() }
+        // Clamp by the full visual extent: the accent rim draws at outerRadius + edgeGap
+        // with an edgeWidth stroke, so clamping by outerRadius alone would let the rim
+        // clip at screen edges.
+        state.outerRadiusPx = with(density) {
+            (style.outerRadius + style.edgeGap + style.edgeWidth / 2).toPx()
+        }
         state.deadZoneRadiusPx = with(density) { style.hubRadius.toPx() }
     }
 }
