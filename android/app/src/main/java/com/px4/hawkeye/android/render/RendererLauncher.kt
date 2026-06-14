@@ -17,12 +17,14 @@ object RendererLauncher {
 
     const val EXTRA_MODE = "com.px4.hawkeye.android.render.MODE"
     const val EXTRA_DEVICE_IP = "com.px4.hawkeye.android.render.DEVICE_IP"
+    const val EXTRA_DRONE_LABELS = "com.px4.hawkeye.android.render.DRONE_LABELS"
 
     fun launch(
         context: Context,
         mode: RenderMode = RenderMode.REPLAY,
         listenPort: Int = DEFAULT_LIVE_PORT,
         deviceIp: String? = null,
+        droneLabels: List<String> = emptyList(),
     ) {
         if (mode == RenderMode.LIVE) {
             writeLiveSessionMarker(
@@ -32,6 +34,7 @@ object RendererLauncher {
         context.startActivity(
             Intent(context, HawkeyeActivity::class.java)
                 .putExtra(EXTRA_MODE, mode.name)
+                .putExtra(EXTRA_DRONE_LABELS, droneLabels.toTypedArray())
                 .apply { deviceIp?.let { putExtra(EXTRA_DEVICE_IP, it) } },
         )
     }

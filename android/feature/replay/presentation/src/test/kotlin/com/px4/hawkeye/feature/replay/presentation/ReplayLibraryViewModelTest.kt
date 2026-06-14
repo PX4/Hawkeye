@@ -7,6 +7,7 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isNull
+import assertk.assertions.isTrue
 import com.px4.hawkeye.core.domain.DataError
 import com.px4.hawkeye.core.domain.Result
 import com.px4.hawkeye.core.domain.LibraryEntry
@@ -102,13 +103,15 @@ class ReplayLibraryViewModelTest {
 
     @Test
     fun `OnEntryClicked stages then emits LaunchReplay`() = runTest {
+        repo.entriesFlow.value = listOf(LibraryEntry("42", "flight.ulg", 1L, 0L))
         val vm = ReplayLibraryViewModel(repo)
 
         vm.events.test {
             vm.onAction(ReplayLibraryAction.OnEntryClicked("42"))
-            assertThat(awaitItem()).isEqualTo(ReplayLibraryEvent.LaunchReplay("42"))
+            assertThat(awaitItem())
+                .isEqualTo(ReplayLibraryEvent.LaunchReplay(listOf("42"), listOf("flight.ulg")))
         }
-        assertThat(repo.stagedIds).containsExactly("42")
+        assertThat(repo.stagedBatches).containsExactly(listOf("42"))
     }
 
     @Test
@@ -120,6 +123,117 @@ class ReplayLibraryViewModelTest {
             vm.onAction(ReplayLibraryAction.OnEntryClicked("42"))
             assertThat(awaitItem()).isInstanceOf(ReplayLibraryEvent.ShowError::class)
         }
+    }
+
+    @Test
+    fun `toggling selection mode on and off clears the selection`() = runTest {
+        repo.entriesFlow.value = listOf(LibraryEntry("1", "a.ulg", 1L, 0L))
+        val vm = ReplayLibraryViewModel(repo)
+
+        vm.onAction(ReplayLibraryAction.OnToggleSelectionMode)
+        assertThat(vm.state.value.isSelectionMode).isTrue()
+
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("1"))
+        assertThat(vm.state.value.selectedIds).containsExactly("1")
+
+        vm.onAction(ReplayLibraryAction.OnToggleSelectionMode)
+        assertThat(vm.state.value.isSelectionMode).isFalse()
+        assertThat(vm.state.value.selectedIds).isEqualTo(emptyList())
+    }
+
+    @Test
+    fun `entry clicks in selection mode toggle membership preserving click order`() = runTest {
+        repo.entriesFlow.value = listOf(
+            LibraryEntry("1", "a.ulg", 1L, 0L),
+            LibraryEntry("2", "b.ulg", 1L, 0L),
+            LibraryEntry("3", "c.ulg", 1L, 0L),
+        )
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnToggleSelectionMode)
+
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("2"))
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("1"))
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("3"))
+        assertThat(vm.state.value.selectedIds).containsExactly("2", "1", "3")
+
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("1"))
+        assertThat(vm.state.value.selectedIds).containsExactly("2", "3")
+        assertThat(repo.stagedBatches).isEqualTo(emptyList<List<String>>())
+    }
+
+    @Test
+    fun `selecting past the swarm cap is ignored and reports an error`() = runTest {
+        repo.entriesFlow.value = (1..17).map { LibraryEntry("$it", "log$it.ulg", 1L, 0L) }
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnToggleSelectionMode)
+
+        vm.events.test {
+            (1..16).forEach { vm.onAction(ReplayLibraryAction.OnEntryClicked("$it")) }
+            expectNoEvents()
+
+            vm.onAction(ReplayLibraryAction.OnEntryClicked("17"))
+            assertThat(awaitItem()).isInstanceOf(ReplayLibraryEvent.ShowError::class)
+        }
+        assertThat(vm.state.value.selectedIds).isEqualTo((1..16).map { "$it" })
+    }
+
+    @Test
+    fun `play together stages the selection in order and launches with display names`() = runTest {
+        repo.entriesFlow.value = listOf(
+            LibraryEntry("1", "alpha.ulg", 1L, 0L),
+            LibraryEntry("2", "bravo.ulg", 1L, 0L),
+            LibraryEntry("3", "charlie.ulg", 1L, 0L),
+        )
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnToggleSelectionMode)
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("3"))
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("1"))
+
+        vm.events.test {
+            vm.onAction(ReplayLibraryAction.OnPlayTogetherClicked)
+            assertThat(awaitItem()).isEqualTo(
+                ReplayLibraryEvent.LaunchReplay(
+                    entryIds = listOf("3", "1"),
+                    droneLabels = listOf("charlie.ulg", "alpha.ulg"),
+                ),
+            )
+        }
+        assertThat(repo.stagedBatches).containsExactly(listOf("3", "1"))
+        assertThat(vm.state.value.isSelectionMode).isFalse()
+        assertThat(vm.state.value.selectedIds).isEqualTo(emptyList())
+    }
+
+    @Test
+    fun `play together stage failure reports an error and keeps the selection`() = runTest {
+        repo.entriesFlow.value = listOf(
+            LibraryEntry("1", "a.ulg", 1L, 0L),
+            LibraryEntry("2", "b.ulg", 1L, 0L),
+        )
+        repo.stageResult = Result.Error(DataError.Local.NOT_FOUND)
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnToggleSelectionMode)
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("1"))
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("2"))
+
+        vm.events.test {
+            vm.onAction(ReplayLibraryAction.OnPlayTogetherClicked)
+            assertThat(awaitItem()).isInstanceOf(ReplayLibraryEvent.ShowError::class)
+        }
+        assertThat(vm.state.value.isSelectionMode).isTrue()
+        assertThat(vm.state.value.selectedIds).containsExactly("1", "2")
+    }
+
+    @Test
+    fun `play together with fewer than two selections does nothing`() = runTest {
+        repo.entriesFlow.value = listOf(LibraryEntry("1", "a.ulg", 1L, 0L))
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnToggleSelectionMode)
+        vm.onAction(ReplayLibraryAction.OnEntryClicked("1"))
+
+        vm.onAction(ReplayLibraryAction.OnPlayTogetherClicked)
+
+        assertThat(repo.stagedBatches).isEqualTo(emptyList<List<String>>())
+        assertThat(vm.state.value.isSelectionMode).isTrue()
     }
 
     @Test

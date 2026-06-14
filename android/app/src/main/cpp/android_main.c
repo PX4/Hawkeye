@@ -7,6 +7,9 @@
 #include "hud.h"
 #include "live_marker.h"
 #include "replay_control.h"
+#include "replay_conflict.h"
+#include "swarm_control.h"
+#include "wheel_gesture.h"
 #include <android/asset_manager.h>
 #include <android/input.h>
 #include <android/keycodes.h>
@@ -24,6 +27,11 @@
 #define HAWKEYE_ASSET_VERSION "2"
 #define HAWKEYE_MAVLINK_PORT 19410
 #define MAX_PATH_LEN ASSET_MAX_PATH
+
+// Per-platform cap, mirroring MAX_VEHICLES in main.c / wasm_main.c (each platform main
+// owns its own arrays; the shared C never sees the constant). The Kotlin library screen
+// enforces the same cap (ReplayLibraryViewModel.MAX_SWARM).
+#define MAX_SWARM_VEHICLES 16
 
 #define TOUCH_ORBIT_SENSITIVITY  0.005f
 #define TOUCH_ZOOM_SENSITIVITY   0.01f
@@ -362,26 +370,40 @@ static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
     }
 }
 
-// The library repository (Kotlin) stages a .ulg via .tmp + atomic rename to
-// inbox/current.ulg, then writes a fresh millis token into inbox/.ready. We poll
-// the sentinel's *contents* (not stat-mtime — f2fs has 1-second granularity and
-// would coalesce two stages in the same wall second) once per second and reload
-// the replay when the token changes.
-static data_source_t g_ds;
-static bool          g_ds_active = false;
+// The library repository (Kotlin) stages one or more .ulg files via .tmp + atomic
+// rename — inbox/current.ulg for the first (or only) log, inbox/swarm_<i>.ulg for the
+// rest of a swarm session — then writes a fresh token into inbox/.ready. We poll the
+// sentinel's *contents* (not stat-mtime — f2fs has 1-second granularity and would
+// coalesce two stages in the same wall second) once per second and reload when the
+// token changes.
+static data_source_t g_sources[MAX_SWARM_VEHICLES];
+static int           g_source_count = 0;   // 0 = no session loaded
+static int           g_selected = 0;       // drone the camera and HUD follow
 static bool          g_live_mode = false;
+static bool          g_ghost_mode = false; // multi-replay auto-resolved to ghost layout
+static bool          g_has_tier3 = false;  // any drone without a valid parsed home
 static long long     g_last_ready_token = 0;
 static hud_t         g_hud;
 // Initialized to a large negative value so the first poll always proceeds.
 static double        g_last_poll_time = -1e9;
 
 // For camera-follow: each frame we translate orbit_target and camera.position
-// by (vehicle.position - g_last_vehicle_pos). Initialized to vehicle.position
-// at startup, and re-seeded on every reload so the first delta is zero.
+// by (selected vehicle position - g_last_vehicle_pos). Initialized at startup,
+// and re-seeded on every reload so the first delta is zero. A drone switch via
+// the wheel leaves it pointing at the old drone's position on purpose: the next
+// frame's delta then carries the camera to the new drone with the user's orbit
+// offset intact.
 static Vector3       g_last_vehicle_pos = {0};
 
+// Tap-and-hold detector for the swarm drone-selection wheel (shared header,
+// platform-fed). Armed only for multi-drone replay sessions.
+static wheel_gesture_t g_wheel = {0};
+
 // Returns the millis token in the sentinel file, or 0 on missing/empty/parse-fail.
-static long long read_ready_token(const char *path) {
+// The token is "<millis>" for a single log or "<millis> <count>" for a swarm batch;
+// *out_count gets the validated count (default 1).
+static long long read_ready_token(const char *path, int *out_count) {
+    *out_count = 1;
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
     char buf[64];
@@ -391,7 +413,10 @@ static long long read_ready_token(const char *path) {
     buf[n] = '\0';
     char *end = NULL;
     long long val = strtoll(buf, &end, 10);
-    return (end == buf) ? 0 : val;
+    if (end == buf) return 0;
+    long count = strtol(end, NULL, 10);
+    if (count >= 1 && count <= MAX_SWARM_VEHICLES) *out_count = (int)count;
+    return val;
 }
 
 // Reads the live marker file and parses "<millis> [port]" via parse_live_marker
@@ -409,7 +434,47 @@ static long long read_live_marker(const char *path, uint16_t *out_port) {
     return parse_live_marker(buf, HAWKEYE_MAVLINK_PORT, out_port);
 }
 
-static int try_load_inbox_ulog(vehicle_t *vehicle) {
+// Applies the auto-resolved multi-drone layout. A trimmed adaptation of wasm_main.c's
+// apply_replay_mode (P-key dialog variant), using home-based origins like the existing
+// single-log path: vehicle_update's first-sample origin latch can catch a transient
+// lat=0 state, while the ULog pre-scan's home is reliable.
+//   1 = formation (shared NED origin, real relative positions)
+//   2 = ghost     (own home origin, non-primary drones at 0.35 alpha)
+//   3 = grid      (own home origin, +5 m X offset per drone)
+static void apply_swarm_layout(vehicle_t *vehicles, int count,
+                               double ref_lat_rad, double ref_lon_rad,
+                               double min_alt, int mode) {
+    for (int i = 0; i < count; i++) {
+        vehicles[i].grid_offset = (Vector3){0, 0, 0};
+        vehicle_set_ghost_alpha(&vehicles[i], 1.0f);
+
+        if (mode == 1) {
+            if (g_sources[i].home.valid) {
+                vehicles[i].lat0 = ref_lat_rad;
+                vehicles[i].lon0 = ref_lon_rad;
+                vehicles[i].alt0 = min_alt;
+                vehicles[i].origin_set = true;
+            }
+        } else if (g_sources[i].home.valid) {
+            vehicles[i].lat0 = g_sources[i].home.lat * 1e-7 * (M_PI / 180.0);
+            vehicles[i].lon0 = g_sources[i].home.lon * 1e-7 * (M_PI / 180.0);
+            vehicles[i].alt0 = g_sources[i].home.alt * 1e-3;
+            vehicles[i].origin_set = true;
+        }
+        // No valid home: leave origin unset for vehicle_update's wait-and-latch.
+    }
+
+    if (mode == 2) {
+        for (int i = 1; i < count; i++)
+            vehicle_set_ghost_alpha(&vehicles[i], 0.35f);
+    } else if (mode == 3) {
+        for (int i = 1; i < count; i++)
+            vehicles[i].grid_offset = (Vector3){ i * 5.0f, 0.0f, 0.0f };
+    }
+}
+
+static int try_load_inbox_swarm(const scene_t *scene, vehicle_t *vehicles,
+                                int *vehicle_inited_count) {
     // Throttle to 1 Hz. Sentinel changes are user-driven (library playback), so
     // a per-frame stat()/read() at 60 Hz is wasted work — and since we read
     // the sentinel's contents (not its mtime), an up-to-1-second detection
@@ -420,60 +485,213 @@ static int try_load_inbox_ulog(vehicle_t *vehicle) {
 
     char ready[MAX_PATH_LEN];
     snprintf(ready, sizeof(ready), "%s/inbox/.ready", s_internal_data_path);
-    long long token = read_ready_token(ready);
+    int count = 1;
+    long long token = read_ready_token(ready, &count);
     if (token == 0 || token == g_last_ready_token) return 0;
 
-    // Parse-then-swap: try to construct the new data source first. If it
-    // fails (corrupt file, partial copy, etc.) the previous replay keeps
-    // playing — we don't tear down working state on speculation.
-    char ulg[MAX_PATH_LEN];
-    snprintf(ulg, sizeof(ulg), "%s/inbox/current.ulg", s_internal_data_path);
-    data_source_t new_ds = {0};
-    int rc = data_source_ulog_create(&new_ds, ulg);
-    if (rc != 0) {
-        __android_log_print(ANDROID_LOG_ERROR, "Hawkeye",
-            "data_source_ulog_create(%s) failed: %d", ulg, rc);
-        // Mark the bad token consumed so we don't retry every second; the
-        // user must re-open the log to trigger another attempt.
-        g_last_ready_token = token;
-        return 0;
+    // Parse-then-swap: construct every new data source first. If any fails
+    // (corrupt file, partial copy, etc.) the previous session keeps playing —
+    // we don't tear down working state on speculation.
+    data_source_t new_sources[MAX_SWARM_VEHICLES];
+    memset(new_sources, 0, sizeof(new_sources));
+    for (int i = 0; i < count; i++) {
+        char ulg[MAX_PATH_LEN];
+        if (i == 0)
+            snprintf(ulg, sizeof(ulg), "%s/inbox/current.ulg", s_internal_data_path);
+        else
+            snprintf(ulg, sizeof(ulg), "%s/inbox/swarm_%d.ulg", s_internal_data_path, i);
+        int rc = data_source_ulog_create(&new_sources[i], ulg);
+        if (rc != 0) {
+            __android_log_print(ANDROID_LOG_ERROR, "Hawkeye",
+                "data_source_ulog_create(%s) failed: %d", ulg, rc);
+            for (int j = 0; j < i; j++) data_source_close(&new_sources[j]);
+            // Mark the bad token consumed so we don't retry every second; the
+            // user must re-stage to trigger another attempt.
+            g_last_ready_token = token;
+            return 0;
+        }
     }
 
-    if (g_ds_active) {
-        data_source_close(&g_ds);
-        vehicle_reset_trail(vehicle);
-    }
-    g_ds = new_ds;
-    g_ds_active = true;
+    // Commit: swap the session over. The wheel machine resets too, so a gesture phase
+    // from the old session can never linger into one where it is no longer ticked.
+    for (int i = 0; i < g_source_count; i++) data_source_close(&g_sources[i]);
+    for (int i = 0; i < count; i++) g_sources[i] = new_sources[i];
+    g_source_count = count;
+    g_selected = 0;
+    g_wheel = (wheel_gesture_t){0};
     g_last_ready_token = token;
 
-    // Reset origin tracking so a new replay without a valid home falls back to
-    // vehicle_update's wait-and-latch logic instead of inheriting the previous
-    // replay's origin (lat0/lon0/alt0 would otherwise stay set from the old log).
-    vehicle->origin_set = false;
-    vehicle->origin_wait_count = 0;
+    // Vehicles: init slots a larger session needs, release slots a smaller one
+    // frees. Loading models here causes a one-time hitch at session start, same
+    // as desktop startup.
+    for (int i = *vehicle_inited_count; i < count; i++)
+        vehicle_init(&vehicles[i], MODEL_QUADROTOR, scene->lighting_shader);
+    for (int i = count; i < *vehicle_inited_count; i++)
+        vehicle_cleanup(&vehicles[i]);
+    *vehicle_inited_count = count;
 
-    // Pre-seed origin from the parsed home so positions are computed relative
-    // to home. vehicle_update's own first-sample origin-init latches onto
-    // whatever state it sees first — if state.lat is briefly 0 (drone powered
-    // on, no GPS lock yet), it sets lat0=0 and the rest of the flight renders
-    // at absolute lat/lon coordinates millions of meters from origin. The ULog
-    // pre-scan populates ctx->home reliably, so use it when available.
-    if (g_ds.home.valid) {
-        vehicle->lat0 = g_ds.home.lat * 1e-7 * (M_PI / 180.0);
-        vehicle->lon0 = g_ds.home.lon * 1e-7 * (M_PI / 180.0);
-        vehicle->alt0 = g_ds.home.alt * 1e-3;
-        vehicle->origin_set = true;
+    for (int i = 0; i < count; i++) {
+        vehicle_reset_trail(&vehicles[i]);
+        // Multi sessions color drones from the theme palette (matches trails and
+        // the Kotlin wheel); single sessions keep the default white tint.
+        vehicles[i].color = (count > 1) ? scene->theme->drone_palette[i % 16] : WHITE;
+        if (g_sources[i].mav_type != 0)
+            vehicle_set_type(&vehicles[i], g_sources[i].mav_type);
+        // Reset origin tracking so a replay without a valid home falls back to
+        // vehicle_update's wait-and-latch logic instead of inheriting the
+        // previous session's origin.
+        vehicles[i].origin_set = false;
+        vehicles[i].origin_wait_count = 0;
+    }
+
+    if (count == 1) {
+        g_ghost_mode = false;
+        g_has_tier3 = false;
+        // Pre-seed origin from the parsed home so positions are computed relative
+        // to home. vehicle_update's own first-sample origin-init latches onto
+        // whatever state it sees first — if state.lat is briefly 0 (drone powered
+        // on, no GPS lock yet), it sets lat0=0 and the rest of the flight renders
+        // at absolute lat/lon coordinates millions of meters from origin. The ULog
+        // pre-scan populates ctx->home reliably, so use it when available.
+        if (g_sources[0].home.valid) {
+            vehicles[0].lat0 = g_sources[0].home.lat * 1e-7 * (M_PI / 180.0);
+            vehicles[0].lon0 = g_sources[0].home.lon * 1e-7 * (M_PI / 180.0);
+            vehicles[0].alt0 = g_sources[0].home.alt * 1e-3;
+            vehicles[0].origin_set = true;
+        }
+    } else {
+        // Shared NED reference: first valid home for lat/lon, lowest home for alt
+        // (mirrors wasm_main.c's finalize).
+        double ref_lat_rad = 0.0, ref_lon_rad = 0.0, min_alt = 1e9;
+        for (int i = 0; i < count; i++) {
+            if (g_sources[i].home.valid) {
+                ref_lat_rad = g_sources[i].home.lat * 1e-7 * (M_PI / 180.0);
+                ref_lon_rad = g_sources[i].home.lon * 1e-7 * (M_PI / 180.0);
+                break;
+            }
+        }
+        for (int i = 0; i < count; i++) {
+            if (g_sources[i].home.valid) {
+                double a = g_sources[i].home.alt * 1e-3;
+                if (a < min_alt) min_alt = a;
+            }
+        }
+        if (min_alt > 1e8) min_alt = 0.0;
+
+        g_has_tier3 = false;
+        for (int i = 0; i < count; i++) {
+            if (!g_sources[i].home.valid) { g_has_tier3 = true; break; }
+        }
+
+        // Auto-resolve the layout (no dialog on Android): overlapping homes
+        // render as ghosts, far-apart homes side by side on a grid, otherwise
+        // formation with real relative positions.
+        conflict_result_t cr = replay_detect_conflict(g_sources, count);
+        int mode = !cr.conflict_detected ? 1 : (cr.conflict_far ? 3 : 2);
+        g_ghost_mode = (mode == 2);
+        apply_swarm_layout(vehicles, count, ref_lat_rad, ref_lon_rad, min_alt, mode);
+        __android_log_print(ANDROID_LOG_INFO, "Hawkeye",
+            "swarm layout: mode=%d conflict=%d far=%d tier3=%d",
+            mode, cr.conflict_detected, cr.conflict_far, g_has_tier3);
     }
 
     // Re-seed the follow baseline so the first frame's delta covers the jump
-    // from the previous replay's last position (or the dummy startup position)
-    // to this replay's first valid sample — keeps the new drone in view.
-    g_last_vehicle_pos = vehicle->position;
+    // from the previous session's last position (or the dummy startup position)
+    // to this session's first valid sample — keeps the selected drone in view.
+    g_last_vehicle_pos = vehicles[0].position;
 
     __android_log_print(ANDROID_LOG_INFO, "Hawkeye",
-        "loaded ulg: duration=%.1fs token=%lld", g_ds.playback.duration_s, token);
+        "loaded %d ulg file(s): duration=%.1fs token=%lld",
+        count, g_sources[0].playback.duration_s, token);
     return 1;
+}
+
+// ---------------------------------------------------------------------------
+// Edge indicator chevrons for off-screen drones. Ported verbatim from
+// wasm_main.c:120-201 (itself a port of main.c:62-145); each platform main
+// carries its own copy because the helper draws with that platform's screen
+// metrics and the shared C layer stays untouched.
+// ---------------------------------------------------------------------------
+
+static void draw_edge_indicators(const vehicle_t *vehicles, int vehicle_count,
+                                  int selected, Camera3D camera, Font font)
+{
+    int ei_sw = GetScreenWidth();
+    int ei_sh = GetScreenHeight();
+    float ei_margin = 40.0f;
+    float ei_scale = powf(ei_sh / 720.0f, 0.7f);
+    if (ei_scale < 1.0f) ei_scale = 1.0f;
+    Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(
+        camera.target, camera.position));
+
+    for (int i = 0; i < vehicle_count; i++) {
+        if (i == selected || !vehicles[i].active) continue;
+
+        Vector3 to_drone = Vector3Subtract(vehicles[i].position,
+                                            camera.position);
+        float dot = to_drone.x * cam_fwd.x + to_drone.y * cam_fwd.y
+                    + to_drone.z * cam_fwd.z;
+
+        Vector2 sp = GetWorldToScreen(vehicles[i].position, camera);
+
+        if (sp.x >= ei_margin && sp.x <= ei_sw - ei_margin &&
+            sp.y >= ei_margin && sp.y <= ei_sh - ei_margin) continue;
+
+        float ei_cx = ei_sw / 2.0f;
+        float ei_cy = ei_sh / 2.0f;
+        float ei_dx = sp.x - ei_cx;
+        float ei_dy = sp.y - ei_cy;
+
+        if (dot < 0.5f) {
+            Vector3 cam_right = Vector3Normalize(
+                Vector3CrossProduct(cam_fwd, (Vector3){0, 1, 0}));
+            Vector3 cam_up_approx = Vector3CrossProduct(cam_right, cam_fwd);
+            ei_dx = Vector3DotProduct(to_drone, cam_right);
+            ei_dy = -Vector3DotProduct(to_drone, cam_up_approx);
+            float len = sqrtf(ei_dx * ei_dx + ei_dy * ei_dy);
+            if (len > 0.01f) { ei_dx /= len; ei_dy /= len; }
+            ei_dx *= ei_sw;
+            ei_dy *= ei_sh;
+        }
+
+        float sx = (ei_dx != 0)
+            ? ((ei_dx > 0 ? ei_sw - ei_margin : ei_margin) - ei_cx) / ei_dx
+            : 1e9f;
+        float sy = (ei_dy != 0)
+            ? ((ei_dy > 0 ? ei_sh - ei_margin : ei_margin) - ei_cy) / ei_dy
+            : 1e9f;
+        float se = fminf(fabsf(sx), fabsf(sy));
+        float ex = ei_cx + ei_dx * se;
+        float ey = ei_cy + ei_dy * se;
+        if (ex < ei_margin) ex = ei_margin;
+        if (ex > ei_sw - ei_margin) ex = ei_sw - ei_margin;
+        if (ey < ei_margin) ey = ei_margin;
+        if (ey > ei_sh - ei_margin) ey = ei_sh - ei_margin;
+
+        Color col = vehicles[i].color;
+        col.a = 220;
+        float angle = atan2f(ei_dy, ei_dx);
+        float sz = 14.0f * ei_scale;
+
+        float chev_len = sz * 1.2f;
+        float chev_spread = 0.5f;
+        Vector2 tip = { ex + cosf(angle) * chev_len,
+                        ey + sinf(angle) * chev_len };
+        Vector2 cl = { ex + cosf(angle + chev_spread) * sz * 0.6f,
+                       ey + sinf(angle + chev_spread) * sz * 0.6f };
+        Vector2 cr = { ex + cosf(angle - chev_spread) * sz * 0.6f,
+                       ey + sinf(angle - chev_spread) * sz * 0.6f };
+        DrawLineEx(tip, cl, 2.5f * ei_scale, col);
+        DrawLineEx(tip, cr, 2.5f * ei_scale, col);
+
+        char num[4];
+        snprintf(num, sizeof(num), "%d", i + 1);
+        float lfs = 18.0f * ei_scale;
+        Vector2 tw = MeasureTextEx(font, num, lfs, 0.5f);
+        float lx = ex - cosf(angle) * (sz * 0.3f) - tw.x / 2;
+        float ly = ey - sinf(angle) * (sz * 0.3f) - tw.y / 2;
+        DrawTextEx(font, num, (Vector2){ lx, ly }, lfs, 0.5f, col);
+    }
 }
 
 // Raylib's rcore_android.c owns android_main and calls user main() after platform setup.
@@ -508,8 +726,11 @@ int main(int argc, char *argv[]) {
     scene_t scene = {0};
     scene_init(&scene);
 
-    vehicle_t vehicle = {0};
-    vehicle_init(&vehicle, MODEL_QUADROTOR, scene.lighting_shader);
+    // Slot 0 is always initialized; a swarm session lazily initializes the rest
+    // (and releases them again when a smaller session loads).
+    vehicle_t vehicles[MAX_SWARM_VEHICLES] = {0};
+    int vehicle_inited_count = 1;
+    vehicle_init(&vehicles[0], MODEL_QUADROTOR, scene.lighting_shader);
 
     hud_init(&g_hud);
     // The transport bar is driven by a Compose overlay on Android, so suppress the
@@ -520,19 +741,19 @@ int main(int argc, char *argv[]) {
     g_hud.scale_mul = 1.5f;
 
     // Position vehicle slightly above origin so it's visible with the default camera
-    vehicle.position = (Vector3){ 0.0f, 0.5f, 0.0f };
+    vehicles[0].position = (Vector3){ 0.0f, 0.5f, 0.0f };
 
     scene.cam_mode   = CAM_MODE_FREE;
     scene.free_track = true;
 
-    Vector3 orbit_target    = vehicle.position;
+    Vector3 orbit_target    = vehicles[0].position;
     Vector2 prev_touch      = {0};
     float   prev_pinch_dist = 0.0f;
     Vector2 prev_mid        = {0};
     int     prev_count      = 0;
 
     scene.camera.target = orbit_target;
-    g_last_vehicle_pos  = vehicle.position;
+    g_last_vehicle_pos  = vehicles[0].position;
 
     // Decide live vs replay from the inbox markers (newest token wins). The Kotlin
     // launcher writes inbox/.live for a Connect tap and inbox/.ready for a replay; a
@@ -544,7 +765,8 @@ int main(int argc, char *argv[]) {
         snprintf(live_path, sizeof(live_path), "%s/inbox/.live", s_internal_data_path);
         snprintf(ready_path, sizeof(ready_path), "%s/inbox/.ready", s_internal_data_path);
         long long live_token = read_live_marker(live_path, &live_port);
-        long long ready_token = read_ready_token(ready_path);
+        int ready_count = 1;
+        long long ready_token = read_ready_token(ready_path, &ready_count);
         // >= so an (unreachable) tie favors the explicit live intent; in practice the two
         // tokens come from distinct user actions stamped at different millis.
         if (live_token > 0 && live_token >= ready_token) {
@@ -554,8 +776,8 @@ int main(int argc, char *argv[]) {
             // sessions (HawkeyeActivity.isLiveMode), so a replay fallback would render with no
             // transport controls at all. On bind failure we stay in the live "Waiting…" state.
             g_live_mode = true;
-            if (data_source_mavlink_create(&g_ds, live_port, /*channel=*/0, false) == 0) {
-                g_ds_active = true;
+            if (data_source_mavlink_create(&g_sources[0], live_port, /*channel=*/0, false) == 0) {
+                g_source_count = 1;
                 __android_log_print(ANDROID_LOG_INFO, "Hawkeye",
                     "live MAVLink: listening on UDP %u", live_port);
             } else {
@@ -566,91 +788,138 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Replay: pick up a .ulg already staged into the inbox before native main() ran
+    // Replay: pick up the session already staged into the inbox before native main() ran
     // (skipped in live mode so the inbox never overrides a live session).
-    if (!g_live_mode) try_load_inbox_ulog(&vehicle);
+    if (!g_live_mode) try_load_inbox_swarm(&scene, vehicles, &vehicle_inited_count);
 
     while (!WindowShouldClose()) {
-        // Catch a new log staged while the renderer is already running (replay only).
-        if (!g_live_mode) try_load_inbox_ulog(&vehicle);
+        // Catch a new session staged while the renderer is already running (replay only).
+        if (!g_live_mode) try_load_inbox_swarm(&scene, vehicles, &vehicle_inited_count);
 
-        // Apply pending transport requests from the Compose overlay (JVM thread).
-        replay_control_apply(&g_ds, g_ds_active);
+        bool active = g_source_count > 0;
 
-        if (g_ds_active) {
-            data_source_poll(&g_ds, GetFrameTime());
+        // Consume a drone selection posted by the wheel overlay (JVM thread). The
+        // camera-follow delta below then carries the camera to the new drone.
+        int sel_req = swarm_control_take_select();
+        if (sel_req >= 0 && sel_req < g_source_count) g_selected = sel_req;
+
+        // Apply pending transport requests from the Compose overlay (JVM thread);
+        // a seek moves every drone, so all trails restart together.
+        if (replay_control_apply(g_sources, g_source_count, active)) {
+            for (int i = 0; i < g_source_count; i++) vehicle_reset_trail(&vehicles[i]);
+        }
+
+        if (active) {
+            float dt = GetFrameTime();
+            for (int i = 0; i < g_source_count; i++) {
+                data_source_poll(&g_sources[i], dt);
+                vehicle_update(&vehicles[i], &g_sources[i].state, &g_sources[i].home);
+            }
             if (g_live_mode) {
                 static bool s_was_connected = false;
-                if (g_ds.connected != s_was_connected) {
-                    s_was_connected = g_ds.connected;
+                if (g_sources[0].connected != s_was_connected) {
+                    s_was_connected = g_sources[0].connected;
                     __android_log_print(ANDROID_LOG_INFO, "Hawkeye",
-                        "live MAVLink: connected=%d sysid=%u", g_ds.connected, g_ds.sysid);
+                        "live MAVLink: connected=%d sysid=%u",
+                        g_sources[0].connected, g_sources[0].sysid);
                 }
             }
-            vehicle_update(&vehicle, &g_ds.state, &g_ds.home);
 
             // Camera follow: translate the orbit center and the camera by the
-            // vehicle's frame-to-frame motion so the user's orbit/pan offset
-            // (relative to the vehicle) stays constant.
-            if (g_ds.state.valid) {
-                Vector3 delta = Vector3Subtract(vehicle.position, g_last_vehicle_pos);
+            // selected vehicle's frame-to-frame motion so the user's orbit/pan
+            // offset (relative to the vehicle) stays constant.
+            if (g_sources[g_selected].state.valid) {
+                Vector3 delta = Vector3Subtract(vehicles[g_selected].position,
+                                                g_last_vehicle_pos);
                 orbit_target = Vector3Add(orbit_target, delta);
                 scene.camera.position = Vector3Add(scene.camera.position, delta);
                 scene.camera.target = orbit_target;
-                g_last_vehicle_pos = vehicle.position;
+                g_last_vehicle_pos = vehicles[g_selected].position;
             }
         }
 
-        // Publish playback + live status for the Compose overlay to read via JNI.
-        replay_control_publish(&g_ds, g_ds_active);
-        live_status_publish(&g_ds, g_ds_active, g_live_mode, live_port);
+        // Publish playback + live status for the Compose overlays to read via JNI.
+        replay_control_publish(&g_sources[g_selected], active);
+        live_status_publish(&g_sources[0], active, g_live_mode, live_port);
 
-        handle_touch(&scene.camera, &orbit_target,
-                     &prev_count, &prev_touch,
-                     &prev_pinch_dist, &prev_mid);
+        // Tap-and-hold wheel gesture, armed only for multi-drone replay. Runs before
+        // the camera handler: while the wheel owns the gesture (PENDING/OPEN) camera
+        // input is suppressed; resetting prev_count makes handle_touch re-seed when
+        // it takes over again, so neither hand-off jumps the camera.
+        bool wheel_owns = false;
+        {
+            int touch_count = GetTouchPointCount();
+            Vector2 touch = (touch_count > 0)
+                ? GetTouchPosition(0)
+                : (Vector2){ g_wheel.finger_x, g_wheel.finger_y };
+            if (g_source_count >= 2 && !g_live_mode) {
+                wheel_owns = wheel_gesture_update(&g_wheel, touch_count,
+                                                  touch.x, touch.y, GetFrameTime());
+            }
+            swarm_control_publish(&g_wheel, g_source_count, g_selected);
+        }
+        if (wheel_owns) {
+            prev_count = -1;
+        } else {
+            handle_touch(&scene.camera, &orbit_target,
+                         &prev_count, &prev_touch,
+                         &prev_pinch_dist, &prev_mid);
+        }
 
         hud_update(&g_hud,
-                   g_ds_active ? g_ds.state.time_usec : 0,
-                   g_ds_active ? g_ds.connected : false,
+                   active ? g_sources[g_selected].state.time_usec : 0,
+                   active ? g_sources[g_selected].connected : false,
                    GetFrameTime());
 
         BeginDrawing();
             scene_draw_sky(&scene);
+            int trail_mode = active ? ((g_source_count > 1) ? 3 : 1) : 0;
             BeginMode3D(scene.camera);
                 scene_draw(&scene);
-                vehicle_draw(&vehicle, scene.theme,
-                             /*selected=*/true,
-                             /*trail_mode=*/g_ds_active ? 1 : 0,
-                             /*show_ground_track=*/false,
-                             /*cam_pos=*/scene.camera.position,
-                             /*classic_colors=*/false);
+                int draw_count = active ? g_source_count : 1;
+                for (int i = 0; i < draw_count; i++) {
+                    vehicle_draw(&vehicles[i], scene.theme,
+                                 /*selected=*/i == g_selected,
+                                 trail_mode,
+                                 /*show_ground_track=*/false,
+                                 /*cam_pos=*/scene.camera.position,
+                                 /*classic_colors=*/false);
+                }
             EndMode3D();
+
+            if (g_source_count > 1) {
+                draw_edge_indicators(vehicles, g_source_count, g_selected,
+                                     scene.camera, g_hud.font_value);
+            }
 
             // HUD overlay. When no .ulg is loaded, hand hud_draw a zeroed
             // data_source so the status row reads "Waiting…" without crashing.
             {
                 data_source_t empty_src = {0};
-                const data_source_t *src_ptr = g_ds_active ? &g_ds : &empty_src;
-                hud_marker_data_t user_md = {0};
-                hud_marker_data_t sys_md  = {0};
-                bool has_awaiting_gps = g_ds_active && !vehicle.origin_set && g_ds.home.valid;
+                const data_source_t *src_ptr = active ? g_sources : &empty_src;
+                int hud_count = active ? g_source_count : 1;
+                int hud_selected = active ? g_selected : 0;
+                // Marker overlays are not surfaced on Android: zeroed per-drone
+                // entries keep hud_draw's indexing in bounds.
+                hud_marker_data_t user_md[MAX_SWARM_VEHICLES] = {0};
+                hud_marker_data_t sys_md[MAX_SWARM_VEHICLES] = {0};
+                bool has_awaiting_gps = active && !vehicles[hud_selected].origin_set
+                                        && g_sources[hud_selected].home.valid;
                 if (g_hud.mode == HUD_CONSOLE) {
-                    hud_draw(&g_hud, &vehicle, src_ptr, /*vehicle_count=*/1, /*selected=*/0,
+                    hud_draw(&g_hud, vehicles, src_ptr, hud_count, hud_selected,
                              GetScreenWidth(), GetScreenHeight(),
-                             scene.theme, /*trail_mode=*/g_ds_active ? 1 : 0,
-                             &user_md, &sys_md, /*marker_vehicle_count=*/1,
-                             /*ghost_mode=*/false, /*has_tier3=*/false, has_awaiting_gps);
+                             scene.theme, trail_mode,
+                             user_md, sys_md, /*marker_vehicle_count=*/hud_count,
+                             g_ghost_mode, g_has_tier3, has_awaiting_gps);
                 }
             }
         EndDrawing();
     }
 
-    if (g_ds_active) {
-        data_source_close(&g_ds);
-        g_ds_active = false;
-    }
+    for (int i = 0; i < g_source_count; i++) data_source_close(&g_sources[i]);
+    g_source_count = 0;
     hud_cleanup(&g_hud);
-    vehicle_cleanup(&vehicle);
+    for (int i = 0; i < vehicle_inited_count; i++) vehicle_cleanup(&vehicles[i]);
     scene_cleanup(&scene);
     SetLoadFileTextCallback(NULL);
     SetLoadFileDataCallback(NULL);

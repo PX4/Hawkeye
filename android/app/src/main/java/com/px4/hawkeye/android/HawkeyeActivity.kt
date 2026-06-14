@@ -26,10 +26,13 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.px4.hawkeye.android.render.NativeLiveStatusController
 import com.px4.hawkeye.android.render.NativeReplayController
+import com.px4.hawkeye.android.render.NativeSwarmController
 import com.px4.hawkeye.android.render.RenderMode
 import com.px4.hawkeye.android.render.RendererLauncher
 import com.px4.hawkeye.android.render.live.LiveStatusRoot
 import com.px4.hawkeye.android.render.live.LiveStatusViewModel
+import com.px4.hawkeye.android.render.swarm.SwarmWheelRoot
+import com.px4.hawkeye.android.render.swarm.SwarmWheelViewModel
 import com.px4.hawkeye.android.render.transport.TransportRoot
 import com.px4.hawkeye.android.render.transport.TransportViewModel
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
@@ -84,7 +87,14 @@ class HawkeyeActivity :
             LiveStatusViewModel(NativeLiveStatusController(), deviceIp) as T
     }
 
+    private val swarmWheelViewModelFactory = object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            SwarmWheelViewModel(NativeSwarmController(), droneLabels) as T
+    }
+
     private var overlay: ComposeView? = null
+    private var wheelOverlay: ComposeView? = null
 
     // Read once from the launch Intent. Safe to cache: the activity uses the default
     // (standard) launch mode, so each launch is a brand-new instance with a fresh Intent;
@@ -98,6 +108,12 @@ class HawkeyeActivity :
     // user where to point PX4 (the :renderer process has no Koin to inject a provider).
     private val deviceIp: String? by lazy {
         intent?.getStringExtra(RendererLauncher.EXTRA_DEVICE_IP)
+    }
+
+    // Staged logs' display names in drone order, for the swarm wheel's slice labels. The
+    // ViewModel falls back to numbered names when a label is missing or blank.
+    private val droneLabels: List<String> by lazy {
+        intent?.getStringArrayExtra(RendererLauncher.EXTRA_DRONE_LABELS)?.toList().orEmpty()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -133,8 +149,9 @@ class HawkeyeActivity :
         if (hasFocus) {
             // raylib/NativeActivity resets system UI on focus changes; re-assert immersive.
             hideSystemBars()
-            // The window is attached and has a valid token by now, so the panel can be added.
+            // The window is attached and has a valid token by now, so the panels can be added.
             attachOverlay()
+            attachWheelOverlay()
         }
     }
 
@@ -191,6 +208,59 @@ class HawkeyeActivity :
         }
         windowManager.addView(composeView, params)
         overlay = composeView
+    }
+
+    /**
+     * Adds the swarm drone-selection wheel as a second, full-screen panel above the renderer
+     * (and above the transport bar — added later, so it z-orders on top; it only draws while
+     * a hold gesture is in progress). Replay sessions only.
+     *
+     * The transport panel and this one split the overlay duties by touch policy, which is
+     * window-global: the transport bar must RECEIVE touches (its wrap-height strip passes
+     * the rest through by geometry), while the wheel surface must pass EVERY touch through
+     * to the GL surface — the native engine owns the tap-and-hold detection — hence
+     * FLAG_NOT_TOUCHABLE and MATCH_PARENT height here.
+     */
+    private fun attachWheelOverlay() {
+        if (wheelOverlay != null || isLiveMode) return
+        val composeView = ComposeView(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            setViewTreeLifecycleOwner(this@HawkeyeActivity)
+            setViewTreeViewModelStoreOwner(this@HawkeyeActivity)
+            setViewTreeSavedStateRegistryOwner(this@HawkeyeActivity)
+            setContent {
+                HawkeyeTheme {
+                    SwarmWheelRoot(
+                        viewModel = ViewModelProvider(
+                            this@HawkeyeActivity, swarmWheelViewModelFactory,
+                        )[SwarmWheelViewModel::class.java],
+                    )
+                }
+            }
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+            // NOT_TOUCHABLE routes every MotionEvent to the windows below (the GL surface);
+            // NOT_FOCUSABLE leaves Back with the renderer; NO_LIMITS + cutout ALWAYS (below)
+            // give the overlay the same full-display pixel space as the GL surface, so the
+            // native gesture coordinates and the wheel drawing coordinates line up 1:1.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            token = window.decorView.windowToken
+            gravity = Gravity.TOP or Gravity.START
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
+        windowManager.addView(composeView, params)
+        wheelOverlay = composeView
     }
 
     override fun onStart() {

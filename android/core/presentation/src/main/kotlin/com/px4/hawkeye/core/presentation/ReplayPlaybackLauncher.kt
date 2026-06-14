@@ -10,5 +10,10 @@ import android.content.Context
  * library and the Home recents peek launch playback.
  */
 fun interface ReplayPlaybackLauncher {
-    fun launch(context: Context, entryId: String)
+    /**
+     * Starts the renderer for the already-staged session. [droneLabels] are the staged logs'
+     * display names in drone order; the renderer shows them in its drone-selection wheel for
+     * multi-drone sessions.
+     */
+    fun launch(context: Context, droneLabels: List<String>)
 }

@@ -23,7 +23,7 @@ class AndroidReplayFileManager(
         return store.write(input, fileName)
     }
 
-    override fun stage(fileName: String): EmptyResult<DataError.Local> = store.stage(fileName)
+    override fun stage(fileNames: List<String>): EmptyResult<DataError.Local> = store.stage(fileNames)
 
     override fun delete(fileName: String) = store.delete(fileName)
 

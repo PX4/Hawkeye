@@ -14,4 +14,10 @@
     <string name="replay_delete_message">Remove \"%1$s\" from the library? This cannot be undone.</string>
     <string name="replay_delete_confirm">Delete</string>
     <string name="replay_delete_cancel">Cancel</string>
+
+    <string name="replay_select">Select</string>
+    <string name="replay_exit_selection">Exit selection</string>
+    <string name="replay_selection_title">%1$d selected</string>
+    <string name="replay_play_together">Play together (%1$d)</string>
+    <string name="replay_swarm_cap">Up to 16 logs can play together</string>
 </resources>

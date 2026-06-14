@@ -7,16 +7,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +38,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.px4.hawkeye.core.designsystem.HawkeyeAlpha
@@ -63,7 +67,7 @@ fun ReplayLibraryRoot(
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {
             ReplayLibraryEvent.LaunchFilePicker -> pickFile.launch(arrayOf("*/*"))
-            is ReplayLibraryEvent.LaunchReplay -> playbackLauncher.launch(context, event.entryId)
+            is ReplayLibraryEvent.LaunchReplay -> playbackLauncher.launch(context, event.droneLabels)
             is ReplayLibraryEvent.ShowError ->
                 Toast.makeText(context, event.text.asString(context), Toast.LENGTH_SHORT).show()
         }
@@ -79,26 +83,66 @@ fun ReplayLibraryScreen(
     onAction: (ReplayLibraryAction) -> Unit,
     onBack: () -> Unit,
 ) {
+    // System back leaves selection mode first (standard selection UX); only a second
+    // back navigates away from the library.
+    BackHandler(enabled = state.isSelectionMode) {
+        onAction(ReplayLibraryAction.OnToggleSelectionMode)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.replay_library_title)) },
+                title = {
+                    Text(
+                        if (state.isSelectionMode) {
+                            stringResource(R.string.replay_selection_title, state.selectedIds.size)
+                        } else {
+                            stringResource(R.string.replay_library_title)
+                        },
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.replay_back),
-                        )
+                    if (state.isSelectionMode) {
+                        IconButton(onClick = { onAction(ReplayLibraryAction.OnToggleSelectionMode) }) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.replay_exit_selection),
+                            )
+                        }
+                    } else {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.replay_back),
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    if (!state.isSelectionMode && state.entries.size >= 2) {
+                        TextButton(onClick = { onAction(ReplayLibraryAction.OnToggleSelectionMode) }) {
+                            Text(stringResource(R.string.replay_select))
+                        }
                     }
                 },
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { onAction(ReplayLibraryAction.OnOpenFileClicked) },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) { Text(stringResource(R.string.replay_open_file)) }
+            if (state.isSelectionMode) {
+                if (state.selectedIds.size >= 2) {
+                    ExtendedFloatingActionButton(
+                        onClick = { onAction(ReplayLibraryAction.OnPlayTogetherClicked) },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) { Text(stringResource(R.string.replay_play_together, state.selectedIds.size)) }
+                }
+            } else {
+                ExtendedFloatingActionButton(
+                    onClick = { onAction(ReplayLibraryAction.OnOpenFileClicked) },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) { Text(stringResource(R.string.replay_open_file)) }
+            }
         },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -109,7 +153,12 @@ fun ReplayLibraryScreen(
                 state.entries.isEmpty() ->
                     EmptyState(modifier = Modifier.align(Alignment.Center))
 
-                else -> LibraryList(entries = state.entries, onAction = onAction)
+                else -> LibraryList(
+                    entries = state.entries,
+                    isSelectionMode = state.isSelectionMode,
+                    selectedIds = state.selectedIds,
+                    onAction = onAction,
+                )
             }
 
             if (state.isImporting) {
@@ -132,6 +181,8 @@ fun ReplayLibraryScreen(
 @Composable
 private fun LibraryList(
     entries: List<LibraryEntryUi>,
+    isSelectionMode: Boolean,
+    selectedIds: List<String>,
     onAction: (ReplayLibraryAction) -> Unit,
 ) {
     LazyColumn(
@@ -141,8 +192,14 @@ private fun LibraryList(
         items(items = entries, key = { it.id }) { entry ->
             LibraryRow(
                 entry = entry,
+                isSelectionMode = isSelectionMode,
+                isSelected = entry.id in selectedIds,
                 onClick = { onAction(ReplayLibraryAction.OnEntryClicked(entry.id)) },
-                onLongClick = { onAction(ReplayLibraryAction.OnDeleteRequested(entry.id)) },
+                // Long-press keeps its delete meaning only outside selection mode, so a
+                // sloppy selection tap can never surface the destructive dialog.
+                onLongClick = {
+                    if (!isSelectionMode) onAction(ReplayLibraryAction.OnDeleteRequested(entry.id))
+                },
             )
         }
     }
@@ -152,10 +209,12 @@ private fun LibraryList(
 @Composable
 private fun LibraryRow(
     entry: LibraryEntryUi,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -163,17 +222,29 @@ private fun LibraryRow(
                 horizontal = HawkeyeDimens.contentPadding,
                 vertical = HawkeyeDimens.itemSpacing,
             ),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = entry.displayName,
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = stringResource(R.string.replay_entry_meta, entry.sizeLabel, entry.importedLabel),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = HawkeyeAlpha.CARD_CAPTION),
-            modifier = Modifier.padding(top = HawkeyeDimens.captionSpacing),
-        )
+        if (isSelectionMode) {
+            Checkbox(
+                checked = isSelected,
+                // Row-level combinedClickable owns the toggle so checkbox and row behave
+                // identically; a null handler keeps the checkbox purely visual.
+                onCheckedChange = null,
+                modifier = Modifier.padding(end = HawkeyeDimens.inlineSpacing),
+            )
+        }
+        Column {
+            Text(
+                text = entry.displayName,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(R.string.replay_entry_meta, entry.sizeLabel, entry.importedLabel),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = HawkeyeAlpha.CARD_CAPTION),
+                modifier = Modifier.padding(top = HawkeyeDimens.captionSpacing),
+            )
+        }
     }
 }
 
@@ -226,6 +297,27 @@ private fun ReplayLibraryScreenPreview() {
                 entries = listOf(
                     LibraryEntryUi("1", "flight_2026_05_28.ulg", "12.4 MB", "May 28, 2026"),
                     LibraryEntryUi("2", "sitl_test.ulg", "3.1 MB", "May 27, 2026"),
+                ),
+            ),
+            onAction = {},
+            onBack = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun ReplayLibrarySelectionPreview() {
+    HawkeyeTheme {
+        ReplayLibraryScreen(
+            state = ReplayLibraryState(
+                isLoading = false,
+                isSelectionMode = true,
+                selectedIds = listOf("1", "2"),
+                entries = listOf(
+                    LibraryEntryUi("1", "flight_2026_05_28.ulg", "12.4 MB", "May 28, 2026"),
+                    LibraryEntryUi("2", "sitl_test.ulg", "3.1 MB", "May 27, 2026"),
+                    LibraryEntryUi("3", "hover_check.ulg", "1.8 MB", "May 26, 2026"),
                 ),
             ),
             onAction = {},

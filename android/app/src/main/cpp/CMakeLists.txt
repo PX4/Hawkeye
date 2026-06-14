@@ -26,6 +26,7 @@ set(MAVLINK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../lib/c_library_v2")
 add_library(hawkeye SHARED
     android_main.c
     replay_jni.c
+    swarm_jni.c
     ${HAWKEYE_SRC}/scene.c
     ${HAWKEYE_SRC}/vehicle.c
     ${HAWKEYE_SRC}/theme.c

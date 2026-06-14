@@ -5,19 +5,23 @@
 // req_pause starts at -1 (no change); every other field is fine zero-initialized.
 replay_control_t g_replay_control = { .req_pause = -1 };
 
-void replay_control_apply(struct data_source *ds, bool active) {
-    if (!active) return;
+bool replay_control_apply(struct data_source *sources, int count, bool active) {
+    if (!active || count <= 0) return false;
 
     int pause = atomic_exchange(&g_replay_control.req_pause, -1);
-    if (pause == 0) ds->playback.paused = false;
-    else if (pause == 1) ds->playback.paused = true;
+    bool speed_set = atomic_exchange(&g_replay_control.req_speed_set, false);
+    float speed = atomic_load(&g_replay_control.req_speed);
+    bool seek_set = atomic_exchange(&g_replay_control.req_seek_set, false);
+    float seek_s = atomic_load(&g_replay_control.req_seek_s);
 
-    if (atomic_exchange(&g_replay_control.req_speed_set, false)) {
-        ds->playback.speed = atomic_load(&g_replay_control.req_speed);
+    for (int i = 0; i < count; i++) {
+        struct data_source *ds = &sources[i];
+        if (pause == 0) ds->playback.paused = false;
+        else if (pause == 1) ds->playback.paused = true;
+        if (speed_set) ds->playback.speed = speed;
+        if (seek_set) data_source_seek(ds, seek_s);
     }
-    if (atomic_exchange(&g_replay_control.req_seek_set, false)) {
-        data_source_seek(ds, atomic_load(&g_replay_control.req_seek_s));
-    }
+    return seek_set;
 }
 
 void replay_control_publish(struct data_source *ds, bool active) {

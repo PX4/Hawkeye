@@ -13,4 +13,9 @@
     <string name="live_status_waiting">Waiting for MAVLink on %1$s</string>
     <string name="live_status_connected">Connected — sysid %1$d</string>
     <string name="live_status_lost">Connection lost</string>
+
+    <!-- Swarm drone-selection wheel overlay -->
+    <string name="swarm_wheel_hint">Release to switch</string>
+    <!-- Slice label; the number matches the renderer's drone indicators (1-based). -->
+    <string name="swarm_drone_label">Drone %1$d</string>
 </resources>

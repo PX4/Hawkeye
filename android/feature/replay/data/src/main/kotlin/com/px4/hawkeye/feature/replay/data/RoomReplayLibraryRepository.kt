@@ -70,11 +70,17 @@ class RoomReplayLibraryRepository(
             }.getOrElse { Result.Error(it.toLocalError()) }
         }
 
-    override suspend fun stageForPlayback(id: String): EmptyResult<DataError.Local> =
+    override suspend fun stageForPlayback(ids: List<String>): EmptyResult<DataError.Local> =
         withContext(ioDispatcher) {
             runCatching {
-                val row = dao.getById(id)
-                if (row == null) Result.Error(DataError.Local.NOT_FOUND) else fileManager.stage(row.fileName)
+                // Resolve every id (preserving caller order — it becomes the drone order)
+                // before staging anything, so a bad id never disturbs the current inbox.
+                val fileNames = ids.map { id -> dao.getById(id)?.fileName }
+                if (fileNames.isEmpty() || fileNames.any { it == null }) {
+                    Result.Error(DataError.Local.NOT_FOUND)
+                } else {
+                    fileManager.stage(fileNames.filterNotNull())
+                }
             }.getOrElse { Result.Error(it.toLocalError()) }
         }
 

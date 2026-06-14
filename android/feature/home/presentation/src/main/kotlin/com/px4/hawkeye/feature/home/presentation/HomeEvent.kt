@@ -7,8 +7,11 @@ sealed interface HomeEvent {
     /** Connect to a vehicle (simulated or real): launch the renderer in live mode. */
     data object ConnectLive : HomeEvent
 
-    /** A recent log was staged into the inbox; hand off to the renderer. */
-    data class PlayRecent(val entryId: String) : HomeEvent
+    /**
+     * A recent log was staged into the inbox; hand off to the renderer. [displayName] is
+     * forwarded as the session's single drone label.
+     */
+    data class PlayRecent(val displayName: String) : HomeEvent
 
     data class ShowError(val text: UiText) : HomeEvent
 }

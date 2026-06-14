@@ -17,7 +17,7 @@ class FakeReplayLibraryRepository : ReplayLibraryRepository {
     var deleteResult: EmptyResult<DataError.Local> = Result.Success(Unit)
 
     val importedUris = mutableListOf<String>()
-    val stagedIds = mutableListOf<String>()
+    val stagedBatches = mutableListOf<List<String>>()
     val deletedIds = mutableListOf<String>()
 
     override fun observeLibrary() = entriesFlow
@@ -35,8 +35,8 @@ class FakeReplayLibraryRepository : ReplayLibraryRepository {
         return deleteResult
     }
 
-    override suspend fun stageForPlayback(id: String): EmptyResult<DataError.Local> {
-        stagedIds += id
+    override suspend fun stageForPlayback(ids: List<String>): EmptyResult<DataError.Local> {
+        stagedBatches += ids
         return stageResult
     }
 }

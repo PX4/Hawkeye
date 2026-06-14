@@ -63,7 +63,7 @@ fun HomeRoot(
         when (event) {
             HomeEvent.NavigateToReplay -> onNavigateToReplay()
             HomeEvent.ConnectLive -> onConnectLive()
-            is HomeEvent.PlayRecent -> playbackLauncher.launch(context, event.entryId)
+            is HomeEvent.PlayRecent -> playbackLauncher.launch(context, listOf(event.displayName))
             is HomeEvent.ShowError ->
                 Toast.makeText(context, event.text.asString(context), Toast.LENGTH_SHORT).show()
         }

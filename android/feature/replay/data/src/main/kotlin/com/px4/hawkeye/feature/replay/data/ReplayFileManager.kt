@@ -13,8 +13,11 @@ interface ReplayFileManager {
     /** Streams the document at [uri] into the library under [fileName]; returns bytes. */
     fun import(uri: String, fileName: String): Result<Long, DataError.Local>
 
-    /** Copies the library payload [fileName] into the renderer inbox and bumps the sentinel. */
-    fun stage(fileName: String): EmptyResult<DataError.Local>
+    /**
+     * Copies the library payloads [fileNames] (order = drone order) into the renderer inbox
+     * and bumps the sentinel.
+     */
+    fun stage(fileNames: List<String>): EmptyResult<DataError.Local>
 
     /** Removes the library payload [fileName]. */
     fun delete(fileName: String)

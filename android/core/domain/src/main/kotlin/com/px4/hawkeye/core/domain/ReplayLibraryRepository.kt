@@ -22,8 +22,9 @@ interface ReplayLibraryRepository {
     suspend fun delete(id: String): EmptyResult<DataError.Local>
 
     /**
-     * Copies the library payload for [id] into the renderer's inbox and bumps the
-     * sentinel so the native poll loop loads it on the next launch.
+     * Copies the library payloads for [ids] into the renderer's inbox (list order = drone
+     * order for a multi-drone session) and bumps the sentinel so the native poll loop loads
+     * them on the next launch.
      */
-    suspend fun stageForPlayback(id: String): EmptyResult<DataError.Local>
+    suspend fun stageForPlayback(ids: List<String>): EmptyResult<DataError.Local>
 }
