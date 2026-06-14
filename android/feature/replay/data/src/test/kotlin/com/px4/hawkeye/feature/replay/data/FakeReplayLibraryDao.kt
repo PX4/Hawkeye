@@ -26,4 +26,8 @@ class FakeReplayLibraryDao : ReplayLibraryDao {
     override suspend fun deleteById(id: String) {
         rows.value = rows.value.filterNot { it.id == id }
     }
+
+    override suspend fun deleteByIds(ids: List<String>) {
+        rows.value = rows.value.filterNot { it.id in ids }
+    }
 }

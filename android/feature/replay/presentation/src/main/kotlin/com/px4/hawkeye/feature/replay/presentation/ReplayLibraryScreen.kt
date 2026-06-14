@@ -20,6 +20,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +35,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -119,7 +122,18 @@ fun ReplayLibraryScreen(
                     }
                 },
                 actions = {
-                    if (!state.isSelectionMode && state.entries.size >= 2) {
+                    if (state.isSelectionMode) {
+                        IconButton(
+                            onClick = { onAction(ReplayLibraryAction.OnDeleteSelectedClicked) },
+                            enabled = state.selectedIds.isNotEmpty(),
+                            modifier = Modifier.testTag(ReplayLibraryTestTags.DELETE_ACTION),
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = stringResource(R.string.replay_delete_selected),
+                            )
+                        }
+                    } else if (state.entries.size >= 2) {
                         TextButton(onClick = { onAction(ReplayLibraryAction.OnToggleSelectionMode) }) {
                             Text(stringResource(R.string.replay_select))
                         }
@@ -169,9 +183,9 @@ fun ReplayLibraryScreen(
         }
     }
 
-    state.pendingDelete?.let { entry ->
+    if (state.showDeleteDialog) {
         DeleteConfirmationDialog(
-            displayName = entry.displayName,
+            count = state.selectedIds.size,
             onConfirm = { onAction(ReplayLibraryAction.OnConfirmDelete) },
             onDismiss = { onAction(ReplayLibraryAction.OnDismissDelete) },
         )
@@ -195,11 +209,9 @@ private fun LibraryList(
                 isSelectionMode = isSelectionMode,
                 isSelected = entry.id in selectedIds,
                 onClick = { onAction(ReplayLibraryAction.OnEntryClicked(entry.id)) },
-                // Long-press keeps its delete meaning only outside selection mode, so a
-                // sloppy selection tap can never surface the destructive dialog.
-                onLongClick = {
-                    if (!isSelectionMode) onAction(ReplayLibraryAction.OnDeleteRequested(entry.id))
-                },
+                // Tap-and-hold starts (or extends) the selection; delete then happens from the
+                // selection top bar, so the destructive action always goes through a confirm.
+                onLongClick = { onAction(ReplayLibraryAction.OnEntryLongClicked(entry.id)) },
             )
         }
     }
@@ -270,19 +282,25 @@ private fun EmptyState(modifier: Modifier = Modifier) {
 
 @Composable
 private fun DeleteConfirmationDialog(
-    displayName: String,
+    count: Int,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.replay_delete_title)) },
-        text = { Text(stringResource(R.string.replay_delete_message, displayName)) },
+        title = { Text(pluralStringResource(R.plurals.replay_delete_title, count, count)) },
+        text = { Text(stringResource(R.string.replay_delete_message)) },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text(stringResource(R.string.replay_delete_confirm)) }
+            TextButton(
+                onClick = onConfirm,
+                modifier = Modifier.testTag(ReplayLibraryTestTags.DELETE_DIALOG_CONFIRM),
+            ) { Text(stringResource(R.string.replay_delete_confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.replay_delete_cancel)) }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag(ReplayLibraryTestTags.DELETE_DIALOG_CANCEL),
+            ) { Text(stringResource(R.string.replay_delete_cancel)) }
         },
     )
 }
@@ -318,6 +336,27 @@ private fun ReplayLibrarySelectionPreview() {
                     LibraryEntryUi("1", "flight_2026_05_28.ulg", "12.4 MB", "May 28, 2026"),
                     LibraryEntryUi("2", "sitl_test.ulg", "3.1 MB", "May 27, 2026"),
                     LibraryEntryUi("3", "hover_check.ulg", "1.8 MB", "May 26, 2026"),
+                ),
+            ),
+            onAction = {},
+            onBack = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun ReplayLibraryDeleteDialogPreview() {
+    HawkeyeTheme {
+        ReplayLibraryScreen(
+            state = ReplayLibraryState(
+                isLoading = false,
+                isSelectionMode = true,
+                selectedIds = listOf("1", "2"),
+                showDeleteDialog = true,
+                entries = listOf(
+                    LibraryEntryUi("1", "flight_2026_05_28.ulg", "12.4 MB", "May 28, 2026"),
+                    LibraryEntryUi("2", "sitl_test.ulg", "3.1 MB", "May 27, 2026"),
                 ),
             ),
             onAction = {},

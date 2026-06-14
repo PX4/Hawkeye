@@ -6,7 +6,6 @@ import assertk.assertions.containsExactly
 import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
 import assertk.assertions.isInstanceOf
-import assertk.assertions.isNull
 import assertk.assertions.isTrue
 import com.px4.hawkeye.core.domain.DataError
 import com.px4.hawkeye.core.domain.Result
@@ -237,29 +236,111 @@ class ReplayLibraryViewModelTest {
     }
 
     @Test
-    fun `delete request then confirm deletes and clears the pending entry`() = runTest {
-        repo.entriesFlow.value = listOf(LibraryEntry("1", "a.ulg", 1L, 0L))
+    fun `long pressing an entry enters selection mode and selects it`() = runTest {
+        repo.entriesFlow.value = listOf(
+            LibraryEntry("1", "a.ulg", 1L, 0L),
+            LibraryEntry("2", "b.ulg", 1L, 0L),
+        )
         val vm = ReplayLibraryViewModel(repo)
 
-        vm.onAction(ReplayLibraryAction.OnDeleteRequested("1"))
-        assertThat(vm.state.value.pendingDelete?.id).isEqualTo("1")
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("2"))
 
-        vm.onAction(ReplayLibraryAction.OnConfirmDelete)
-
-        assertThat(vm.state.value.pendingDelete).isNull()
-        assertThat(repo.deletedIds).containsExactly("1")
-        assertThat(vm.state.value.entries).isEqualTo(emptyList())
+        assertThat(vm.state.value.isSelectionMode).isTrue()
+        assertThat(vm.state.value.selectedIds).containsExactly("2")
+        assertThat(repo.stagedBatches).isEqualTo(emptyList<List<String>>())
     }
 
     @Test
-    fun `delete request then dismiss does not delete`() = runTest {
-        repo.entriesFlow.value = listOf(LibraryEntry("1", "a.ulg", 1L, 0L))
+    fun `long pressing while already selecting toggles membership`() = runTest {
+        repo.entriesFlow.value = listOf(
+            LibraryEntry("1", "a.ulg", 1L, 0L),
+            LibraryEntry("2", "b.ulg", 1L, 0L),
+        )
         val vm = ReplayLibraryViewModel(repo)
 
-        vm.onAction(ReplayLibraryAction.OnDeleteRequested("1"))
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("1"))
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("2"))
+        assertThat(vm.state.value.selectedIds).containsExactly("1", "2")
+
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("1"))
+        assertThat(vm.state.value.selectedIds).containsExactly("2")
+    }
+
+    @Test
+    fun `delete selected shows the confirmation dialog`() = runTest {
+        repo.entriesFlow.value = listOf(LibraryEntry("1", "a.ulg", 1L, 0L))
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("1"))
+
+        vm.onAction(ReplayLibraryAction.OnDeleteSelectedClicked)
+
+        assertThat(vm.state.value.showDeleteDialog).isTrue()
+        assertThat(repo.deletedBatches).isEqualTo(emptyList<List<String>>())
+    }
+
+    @Test
+    fun `delete selected with an empty selection does nothing`() = runTest {
+        repo.entriesFlow.value = listOf(LibraryEntry("1", "a.ulg", 1L, 0L))
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnToggleSelectionMode)
+
+        vm.onAction(ReplayLibraryAction.OnDeleteSelectedClicked)
+
+        assertThat(vm.state.value.showDeleteDialog).isFalse()
+    }
+
+    @Test
+    fun `confirming delete removes the whole selection and exits selection mode`() = runTest {
+        repo.entriesFlow.value = listOf(
+            LibraryEntry("1", "a.ulg", 1L, 0L),
+            LibraryEntry("2", "b.ulg", 1L, 0L),
+            LibraryEntry("3", "c.ulg", 1L, 0L),
+        )
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("1"))
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("3"))
+        vm.onAction(ReplayLibraryAction.OnDeleteSelectedClicked)
+
+        vm.onAction(ReplayLibraryAction.OnConfirmDelete)
+
+        assertThat(repo.deletedBatches).containsExactly(listOf("1", "3"))
+        assertThat(vm.state.value.showDeleteDialog).isFalse()
+        assertThat(vm.state.value.isSelectionMode).isFalse()
+        assertThat(vm.state.value.selectedIds).isEqualTo(emptyList())
+        assertThat(vm.state.value.entries.map { it.id }).containsExactly("2")
+    }
+
+    @Test
+    fun `delete failure reports an error and keeps the selection`() = runTest {
+        repo.entriesFlow.value = listOf(
+            LibraryEntry("1", "a.ulg", 1L, 0L),
+            LibraryEntry("2", "b.ulg", 1L, 0L),
+        )
+        repo.deleteAllResult = Result.Error(DataError.Local.UNKNOWN)
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("1"))
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("2"))
+        vm.onAction(ReplayLibraryAction.OnDeleteSelectedClicked)
+
+        vm.events.test {
+            vm.onAction(ReplayLibraryAction.OnConfirmDelete)
+            assertThat(awaitItem()).isInstanceOf(ReplayLibraryEvent.ShowError::class)
+        }
+        assertThat(vm.state.value.isSelectionMode).isTrue()
+        assertThat(vm.state.value.selectedIds).containsExactly("1", "2")
+    }
+
+    @Test
+    fun `dismissing delete hides the dialog without deleting`() = runTest {
+        repo.entriesFlow.value = listOf(LibraryEntry("1", "a.ulg", 1L, 0L))
+        val vm = ReplayLibraryViewModel(repo)
+        vm.onAction(ReplayLibraryAction.OnEntryLongClicked("1"))
+        vm.onAction(ReplayLibraryAction.OnDeleteSelectedClicked)
+
         vm.onAction(ReplayLibraryAction.OnDismissDelete)
 
-        assertThat(vm.state.value.pendingDelete).isNull()
-        assertThat(repo.deletedIds).isEqualTo(emptyList())
+        assertThat(vm.state.value.showDeleteDialog).isFalse()
+        assertThat(repo.deletedBatches).isEqualTo(emptyList<List<String>>())
+        assertThat(vm.state.value.selectedIds).containsExactly("1")
     }
 }

@@ -22,6 +22,13 @@ interface ReplayLibraryRepository {
     suspend fun delete(id: String): EmptyResult<DataError.Local>
 
     /**
+     * Removes the metadata rows and on-disk payloads for every id in [ids]. Resolves all ids
+     * first: a single unknown id fails the whole batch (returns [DataError.Local.NOT_FOUND])
+     * before anything is deleted, so a selection is never half-removed.
+     */
+    suspend fun deleteAll(ids: List<String>): EmptyResult<DataError.Local>
+
+    /**
      * Copies the library payloads for [ids] into the renderer's inbox (list order = drone
      * order for a multi-drone session) and bumps the sentinel so the native poll loop loads
      * them on the next launch.

@@ -44,13 +44,17 @@ class ReplayLibraryViewModel(
                 if (_state.value.isSelectionMode) toggleSelection(action.id)
                 else stageAndLaunch(listOf(action.id))
 
-            is ReplayLibraryAction.OnDeleteRequested ->
-                _state.update { state -> state.copy(pendingDelete = state.entries.find { it.id == action.id }) }
+            is ReplayLibraryAction.OnEntryLongClicked -> longClickEntry(action.id)
+
+            ReplayLibraryAction.OnDeleteSelectedClicked ->
+                if (_state.value.selectedIds.isNotEmpty()) {
+                    _state.update { it.copy(showDeleteDialog = true) }
+                }
 
             ReplayLibraryAction.OnConfirmDelete -> confirmDelete()
 
             ReplayLibraryAction.OnDismissDelete ->
-                _state.update { it.copy(pendingDelete = null) }
+                _state.update { it.copy(showDeleteDialog = false) }
 
             ReplayLibraryAction.OnToggleSelectionMode ->
                 _state.update {
@@ -58,6 +62,15 @@ class ReplayLibraryViewModel(
                 }
 
             ReplayLibraryAction.OnPlayTogetherClicked -> playTogether()
+        }
+    }
+
+    private fun longClickEntry(id: String) {
+        // First long-press starts selection on that row; once selecting, it toggles like a tap.
+        if (_state.value.isSelectionMode) {
+            toggleSelection(id)
+        } else {
+            _state.update { it.copy(isSelectionMode = true, selectedIds = listOf(id)) }
         }
     }
 
@@ -71,7 +84,7 @@ class ReplayLibraryViewModel(
                 viewModelScope.launch {
                     _events.send(
                         ReplayLibraryEvent.ShowError(
-                            UiText.StringResource(R.string.replay_swarm_cap),
+                            UiText.StringResource(R.string.replay_selection_cap),
                         ),
                     )
                 }
@@ -109,10 +122,14 @@ class ReplayLibraryViewModel(
     }
 
     private fun confirmDelete() {
-        val pending = _state.value.pendingDelete ?: return
-        _state.update { it.copy(pendingDelete = null) }
+        val ids = _state.value.selectedIds
+        if (ids.isEmpty()) return
+        _state.update { it.copy(showDeleteDialog = false) }
         viewModelScope.launch {
-            repository.delete(pending.id).onFailure { _events.send(ReplayLibraryEvent.ShowError(it.toUiText())) }
+            repository.deleteAll(ids)
+                // The observeLibrary flow re-emits the trimmed list; just drop selection mode.
+                .onSuccess { _state.update { it.copy(isSelectionMode = false, selectedIds = emptyList()) } }
+                .onFailure { _events.send(ReplayLibraryEvent.ShowError(it.toUiText())) }
         }
     }
 

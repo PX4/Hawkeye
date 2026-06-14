@@ -10,14 +10,18 @@
     <!-- Row caption: size and import date. Two placeholders so translators can reorder. -->
     <string name="replay_entry_meta">%1$s · %2$s</string>
 
-    <string name="replay_delete_title">Delete log?</string>
-    <string name="replay_delete_message">Remove \"%1$s\" from the library? This cannot be undone.</string>
+    <plurals name="replay_delete_title">
+        <item quantity="one">Delete %1$d log?</item>
+        <item quantity="other">Delete %1$d logs?</item>
+    </plurals>
+    <string name="replay_delete_message">This can\'t be undone.</string>
     <string name="replay_delete_confirm">Delete</string>
     <string name="replay_delete_cancel">Cancel</string>
+    <string name="replay_delete_selected">Delete selected</string>
 
     <string name="replay_select">Select</string>
     <string name="replay_exit_selection">Exit selection</string>
     <string name="replay_selection_title">%1$d selected</string>
     <string name="replay_play_together">Play together (%1$d)</string>
-    <string name="replay_swarm_cap">Up to 16 logs can play together</string>
+    <string name="replay_selection_cap">You can select up to 16 logs at a time</string>
 </resources>

@@ -14,11 +14,11 @@ class FakeReplayLibraryRepository : ReplayLibraryRepository {
     var importResult: Result<LibraryEntry, DataError.Local> =
         Result.Success(LibraryEntry("new", "new.ulg", 10L, 0L))
     var stageResult: EmptyResult<DataError.Local> = Result.Success(Unit)
-    var deleteResult: EmptyResult<DataError.Local> = Result.Success(Unit)
+    var deleteAllResult: EmptyResult<DataError.Local> = Result.Success(Unit)
 
     val importedUris = mutableListOf<String>()
     val stagedBatches = mutableListOf<List<String>>()
-    val deletedIds = mutableListOf<String>()
+    val deletedBatches = mutableListOf<List<String>>()
 
     override fun observeLibrary() = entriesFlow
 
@@ -28,11 +28,16 @@ class FakeReplayLibraryRepository : ReplayLibraryRepository {
     }
 
     override suspend fun delete(id: String): EmptyResult<DataError.Local> {
-        deletedIds += id
-        if (deleteResult is Result.Success) {
-            entriesFlow.value = entriesFlow.value.filterNot { it.id == id }
+        entriesFlow.value = entriesFlow.value.filterNot { it.id == id }
+        return Result.Success(Unit)
+    }
+
+    override suspend fun deleteAll(ids: List<String>): EmptyResult<DataError.Local> {
+        deletedBatches += ids
+        if (deleteAllResult is Result.Success) {
+            entriesFlow.value = entriesFlow.value.filterNot { it.id in ids }
         }
-        return deleteResult
+        return deleteAllResult
     }
 
     override suspend fun stageForPlayback(ids: List<String>): EmptyResult<DataError.Local> {
