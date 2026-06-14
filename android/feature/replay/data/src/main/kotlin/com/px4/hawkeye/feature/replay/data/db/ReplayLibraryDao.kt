@@ -20,4 +20,7 @@ interface ReplayLibraryDao {
 
     @Query("DELETE FROM library_entries WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM library_entries WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
 }

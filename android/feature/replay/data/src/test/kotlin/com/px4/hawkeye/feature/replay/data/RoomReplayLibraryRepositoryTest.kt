@@ -103,6 +103,38 @@ class RoomReplayLibraryRepositoryTest {
     }
 
     @Test
+    fun `deleteAll removes every selected payload and row`() = runTest {
+        dao.seed(entity("a"), entity("b"), entity("c"))
+
+        val result = repository().deleteAll(listOf("a", "c"))
+
+        assertThat(result).isEqualTo(Result.Success(Unit))
+        assertThat(files.deletedFileNames).containsExactly("a.ulg", "c.ulg")
+        assertThat(dao.getById("a")).isNull()
+        assertThat(dao.getById("c")).isNull()
+        assertThat(dao.getById("b")).isNotNull()
+    }
+
+    @Test
+    fun `deleteAll fails with NOT_FOUND and deletes nothing when any id is unknown`() = runTest {
+        dao.seed(entity("a"))
+
+        val result = repository().deleteAll(listOf("a", "missing"))
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
+        assertThat(files.deletedFileNames).isEqualTo(emptyList())
+        assertThat(dao.getById("a")).isNotNull()
+    }
+
+    @Test
+    fun `deleteAll with an empty list returns NOT_FOUND`() = runTest {
+        val result = repository().deleteAll(emptyList())
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
+        assertThat(files.deletedFileNames).isEqualTo(emptyList())
+    }
+
+    @Test
     fun `stageForPlayback stages the entry's payload`() = runTest {
         dao.seed(entity("a"))
 

@@ -70,6 +70,22 @@ class RoomReplayLibraryRepository(
             }.getOrElse { Result.Error(it.toLocalError()) }
         }
 
+    override suspend fun deleteAll(ids: List<String>): EmptyResult<DataError.Local> =
+        withContext(ioDispatcher) {
+            runCatching {
+                // Resolve every id before touching the filesystem so an unknown id fails the
+                // whole batch instead of leaving a selection half-deleted.
+                val fileNames = ids.map { id -> dao.getById(id)?.fileName }
+                if (fileNames.isEmpty() || fileNames.any { it == null }) {
+                    Result.Error(DataError.Local.NOT_FOUND)
+                } else {
+                    fileNames.filterNotNull().forEach(fileManager::delete)
+                    dao.deleteByIds(ids)
+                    Result.Success(Unit)
+                }
+            }.getOrElse { Result.Error(it.toLocalError()) }
+        }
+
     override suspend fun stageForPlayback(ids: List<String>): EmptyResult<DataError.Local> =
         withContext(ioDispatcher) {
             runCatching {
