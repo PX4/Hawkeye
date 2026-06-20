@@ -1408,7 +1408,8 @@ int main(int argc, char *argv[]) {
             // Ortho panel overlay (sidebar in Console mode; tactical draws its own insets)
             if (hud.mode != HUD_TACTICAL) {
                 int bar_h = show_hud ? hud_bar_height(&hud, GetScreenHeight()) : 0;
-                ortho_panel_draw(&ortho, GetScreenHeight(), bar_h, scene.theme, hud.font_label,
+                ortho_panel_draw(&ortho, GetScreenHeight(), bar_h, /*top_inset=*/0,
+                                 scene.theme, hud.font_label,
                                  vehicles, vehicle_count, selected, trail_mode,
                                  corr_mode, hud.pinned, hud.pinned_count,
                                  show_axes);

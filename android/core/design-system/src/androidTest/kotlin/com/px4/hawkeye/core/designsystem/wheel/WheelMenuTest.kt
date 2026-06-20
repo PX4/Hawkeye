@@ -148,9 +148,13 @@ class WheelMenuTest {
         composeRule.mainClock.advanceTimeBy(longPressWaitMs)
         composeRule.onNodeWithTag(WheelMenuTestTags.WHEEL).assertIsDisplayed()
 
+        // The cancel triggers on any second pointer regardless of where it lands; keep it
+        // well within the host so a large offset can't fall off-surface on smaller screens
+        // (an off-surface pointer is never delivered, which made this multi-touch case flaky).
         composeRule.onNodeWithTag(HOST).performTouchInput {
-            down(1, center + Offset(600f, 0f))
+            down(1, center + Offset(150f, 0f))
         }
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag(WheelMenuTestTags.WHEEL).assertDoesNotExist()
 
         composeRule.onNodeWithTag(HOST).performTouchInput {

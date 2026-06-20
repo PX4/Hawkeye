@@ -16,11 +16,22 @@ import com.px4.hawkeye.core.designsystem.glassSurface
  *   (e.g. a file name when the slice label is just an index); falls back to [label].
  *   Drawn on a single line — the producer should pre-truncate anything that could
  *   outgrow the hub.
+ * @property id Stable identity for action dispatch (e.g. "view:chase", "drone:2"). Kept a
+ *   plain value (not a lambda) so [WheelMenuItem] stays an equatable value type — the
+ *   producer compares item lists to decide when to swap menus.
+ * @property children When non-null this slice is a parent: hovering and dwelling on it
+ *   drills into [children] (a submenu) rather than selecting. A null [children] is a leaf
+ *   that selects on release. Drives [WheelMenuNavigator].
+ * @property isActive Marks the slice as the currently-active choice (e.g. the live camera
+ *   view), so the widget can highlight it.
  */
 data class WheelMenuItem(
     val label: String,
     val accentColor: Color,
     val hubLabel: String? = null,
+    val id: String? = null,
+    val children: List<WheelMenuItem>? = null,
+    val isActive: Boolean = false,
 )
 
 /**

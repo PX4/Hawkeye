@@ -410,6 +410,7 @@ static void draw_grid_2d(Vector3 center, float span, float px, float py,
 // ── Draw (2D overlays after texture composite) ───────────────────────────────
 
 void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
+                      int top_inset,
                       const theme_t *theme, Font font,
                       const vehicle_t *vehicles, int vehicle_count,
                       int selected, int trail_mode,
@@ -421,13 +422,18 @@ void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
     int margin = 8;
     int gap = 4;
 
-    // Available height = screen minus HUD bar minus margins
-    int avail_h = screen_h - hud_bar_h - margin * 2;
+    // Available height = screen minus HUD bar minus a top inset (e.g. an overlay bar)
+    // minus margins. Shrinking the column for the inset keeps the bottom anchor, so the
+    // top view drops below the inset instead of hiding behind it.
+    int avail_h = screen_h - hud_bar_h - top_inset - margin * 2;
     int ps = (avail_h - gap * (ORTHO_VIEW_COUNT - 1)) / ORTHO_VIEW_COUNT;
     if (ps < 60) ps = 60;
 
     int total_h = ps * ORTHO_VIEW_COUNT + gap * (ORTHO_VIEW_COUNT - 1);
     int start_y = screen_h - hud_bar_h - total_h - margin;
+    // On very short screens the floored panel size can overflow the inset; never start
+    // above it.
+    if (start_y < top_inset + margin) start_y = top_inset + margin;
 
     Color accent = theme->hud_accent;
     Color border_col = (Color){ accent.r, accent.g, accent.b, 120 };

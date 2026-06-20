@@ -2,6 +2,7 @@
 #include "raymath.h"
 #include "asset_path.h"
 #include "scene.h"
+#include "ortho_panel.h"
 #include "vehicle.h"
 #include "data_source.h"
 #include "hud.h"
@@ -9,6 +10,7 @@
 #include "replay_control.h"
 #include "replay_conflict.h"
 #include "swarm_control.h"
+#include "view_control.h"
 #include "wheel_gesture.h"
 #include <android/asset_manager.h>
 #include <android/input.h>
@@ -38,6 +40,8 @@
 #define TOUCH_PAN_SENSITIVITY    0.002f
 #define TOUCH_MIN_ORBIT_DIST     2.0f
 #define TOUCH_MAX_ORBIT_DIST    50.0f
+#define TOUCH_ORTHO_PAN_SENSITIVITY 0.0015f  // px -> world units, scaled by ortho span
+#define DEFAULT_PERSP_FOVY      60.0f        // matches scene_init; reset when leaving ortho
 
 // Forward-declare Raylib's Android accessor (defined in rcore_android.c, not in raylib.h).
 struct android_app *GetAndroidApp(void);
@@ -367,6 +371,82 @@ static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
         *prev_pinch_dist = dist;
         *prev_mid        = mid;
         *prev_touch      = GetTouchPosition(0);
+    }
+}
+
+// Touch handling for the param-driven views (chase / fpv / ortho). Mirrors handle_touch's
+// finger-count reset, then maps a 1-finger drag and a 2-finger pinch onto the scene
+// params; scene_update_camera() turns those params into the actual camera each frame.
+// Free-track keeps its own handle_touch path — this covers everything else.
+static void handle_view_touch(scene_t *s, int *prev_count, Vector2 *prev_touch,
+                              float *prev_pinch_dist, Vector2 *prev_mid) {
+    int count = GetTouchPointCount();
+
+    // On finger count change: reseed prev values to current to avoid a jump.
+    if (count != *prev_count) {
+        if (count >= 1) *prev_touch = GetTouchPosition(0);
+        if (count >= 2) {
+            Vector2 t0 = GetTouchPosition(0);
+            Vector2 t1 = GetTouchPosition(1);
+            *prev_pinch_dist = Vector2Distance(t0, t1);
+            *prev_mid = (Vector2){ (t0.x + t1.x) * 0.5f, (t0.y + t1.y) * 0.5f };
+        }
+        *prev_count = count;
+        return;
+    }
+
+    bool ortho = (s->ortho_mode != ORTHO_NONE);
+
+    if (count == 1) {
+        Vector2 touch = GetTouchPosition(0);
+        Vector2 d = { touch.x - prev_touch->x, touch.y - prev_touch->y };
+        *prev_touch = touch;
+
+        if (ortho) {
+            // Pan in world units; scale by span so panning feels constant at any zoom.
+            float k = s->ortho_span * TOUCH_ORTHO_PAN_SENSITIVITY;
+            switch (s->ortho_mode) {
+                case ORTHO_TOP:    s->ortho_pan.x -= d.x * k; s->ortho_pan.z -= d.y * k; break;
+                case ORTHO_BOTTOM: s->ortho_pan.x -= d.x * k; s->ortho_pan.z += d.y * k; break;
+                case ORTHO_FRONT:  s->ortho_pan.x -= d.x * k; s->ortho_pan.y += d.y * k; break;
+                case ORTHO_BACK:   s->ortho_pan.x += d.x * k; s->ortho_pan.y += d.y * k; break;
+                case ORTHO_LEFT:   s->ortho_pan.z += d.x * k; s->ortho_pan.y += d.y * k; break;
+                case ORTHO_RIGHT:  s->ortho_pan.z -= d.x * k; s->ortho_pan.y += d.y * k; break;
+                default: break;
+            }
+        } else if (s->cam_mode == CAM_MODE_CHASE) {
+            s->chase_yaw   -= d.x * TOUCH_ORBIT_SENSITIVITY;
+            s->chase_pitch += d.y * TOUCH_ORBIT_SENSITIVITY;
+            if (s->chase_pitch < -1.2f) s->chase_pitch = -1.2f;  // match desktop clamp
+            if (s->chase_pitch >  1.4f) s->chase_pitch =  1.4f;
+        } else if (s->cam_mode == CAM_MODE_FPV) {
+            s->fpv_yaw   += d.x * TOUCH_ORBIT_SENSITIVITY;
+            s->fpv_pitch -= d.y * TOUCH_ORBIT_SENSITIVITY;
+            if (s->fpv_pitch >  0.0f)         s->fpv_pitch =  0.0f;        // forward..
+            if (s->fpv_pitch < -PI / 2.0f)    s->fpv_pitch = -PI / 2.0f;   // ..straight down
+        }
+    } else if (count == 2) {
+        Vector2 t0 = GetTouchPosition(0);
+        Vector2 t1 = GetTouchPosition(1);
+        float dist = Vector2Distance(t0, t1);
+        float dd = dist - *prev_pinch_dist;  // pinch-out positive
+
+        if (ortho) {
+            s->ortho_span *= (1.0f - dd * TOUCH_ZOOM_SENSITIVITY);
+            if (s->ortho_span <  10.0f) s->ortho_span =  10.0f;
+            if (s->ortho_span > 500.0f) s->ortho_span = 500.0f;
+        } else if (s->cam_mode == CAM_MODE_CHASE) {
+            s->chase_distance *= (1.0f - dd * TOUCH_ZOOM_SENSITIVITY);
+            if (s->chase_distance < TOUCH_MIN_ORBIT_DIST) s->chase_distance = TOUCH_MIN_ORBIT_DIST;
+            if (s->chase_distance > TOUCH_MAX_ORBIT_DIST) s->chase_distance = TOUCH_MAX_ORBIT_DIST;
+        } else if (s->cam_mode == CAM_MODE_FPV) {
+            s->camera.fovy *= (1.0f - dd * TOUCH_ZOOM_SENSITIVITY);
+            if (s->camera.fovy <  10.0f) s->camera.fovy =  10.0f;
+            if (s->camera.fovy > 120.0f) s->camera.fovy = 120.0f;
+        }
+
+        *prev_pinch_dist = dist;
+        *prev_touch      = GetTouchPosition(0);  // keep fresh for the drop back to 1 finger
     }
 }
 
@@ -726,6 +806,11 @@ int main(int argc, char *argv[]) {
     scene_t scene = {0};
     scene_init(&scene);
 
+    // 3-up ortho side panel (top/front/right mini-views); toggled from the wheel's
+    // "Panel" leaf. Render textures need the GL context InitWindow created above.
+    ortho_panel_t ortho;
+    ortho_panel_init(&ortho);
+
     // Slot 0 is always initialized; a swarm session lazily initializes the rest
     // (and releases them again when a smaller session loads).
     vehicle_t vehicles[MAX_SWARM_VEHICLES] = {0};
@@ -742,7 +827,11 @@ int main(int argc, char *argv[]) {
 
     // Position vehicle slightly above origin so it's visible with the default camera
     vehicles[0].position = (Vector3){ 0.0f, 0.5f, 0.0f };
+    // Identity orientation so FPV is well-defined before the first telemetry frame.
+    vehicles[0].rotation = QuaternionIdentity();
 
+    // Default view: free-track orbit (today's Android behavior). The wheel's "Change View"
+    // submenu switches scene.cam_mode / scene.ortho_mode at runtime via view_control.
     scene.cam_mode   = CAM_MODE_FREE;
     scene.free_track = true;
 
@@ -751,6 +840,7 @@ int main(int argc, char *argv[]) {
     float   prev_pinch_dist = 0.0f;
     Vector2 prev_mid        = {0};
     int     prev_count      = 0;
+    bool    ortho_panel_visible = false;  // 3-up ortho side panel (toggled via view_control)
 
     scene.camera.target = orbit_target;
     g_last_vehicle_pos  = vehicles[0].position;
@@ -803,6 +893,29 @@ int main(int argc, char *argv[]) {
         int sel_req = swarm_control_take_select();
         if (sel_req >= 0 && sel_req < g_source_count) g_selected = sel_req;
 
+        // Consume view-switch requests posted by the wheel overlay (JVM thread). A camera
+        // request also exits any ortho view and resets fovy + projection (ortho leaves
+        // fovy as a world-unit span and the projection orthographic); an ortho request
+        // switches into a fullscreen ortho view.
+        int req_cam = view_control_take_cam_mode();
+        if (req_cam >= 0) {
+            scene.cam_mode         = (camera_mode_t)req_cam;
+            scene.ortho_mode       = ORTHO_NONE;
+            scene.camera.fovy      = DEFAULT_PERSP_FOVY;
+            // Free-track skips scene_update_camera(), so reset the projection here or an
+            // ortho->free switch would keep rendering through the orthographic projection.
+            scene.camera.projection = CAMERA_PERSPECTIVE;
+            if (scene.cam_mode == CAM_MODE_FREE) scene.free_track = true;
+        }
+        int req_ortho = view_control_take_ortho_mode();
+        if (req_ortho >= 0) scene.ortho_mode = (ortho_mode_t)req_ortho;
+        if (view_control_take_toggle_panel()) ortho_panel_visible = !ortho_panel_visible;
+
+        // Free-track is the only mode driven by the bespoke orbit handler + follow-delta;
+        // chase/fpv/ortho are positioned by the shared scene_update_camera() each frame.
+        bool free_track_mode = (scene.ortho_mode == ORTHO_NONE &&
+                                scene.cam_mode == CAM_MODE_FREE);
+
         // Apply pending transport requests from the Compose overlay (JVM thread);
         // a seek moves every drone, so all trails restart together.
         if (replay_control_apply(g_sources, g_source_count, active)) {
@@ -831,9 +944,13 @@ int main(int argc, char *argv[]) {
             if (g_sources[g_selected].state.valid) {
                 Vector3 delta = Vector3Subtract(vehicles[g_selected].position,
                                                 g_last_vehicle_pos);
-                orbit_target = Vector3Add(orbit_target, delta);
-                scene.camera.position = Vector3Add(scene.camera.position, delta);
-                scene.camera.target = orbit_target;
+                // Only free-track carries its orbit offset by the vehicle delta; the other
+                // views re-derive the camera from the live vehicle position below.
+                if (free_track_mode) {
+                    orbit_target = Vector3Add(orbit_target, delta);
+                    scene.camera.position = Vector3Add(scene.camera.position, delta);
+                    scene.camera.target = orbit_target;
+                }
                 g_last_vehicle_pos = vehicles[g_selected].position;
             }
         }
@@ -842,17 +959,18 @@ int main(int argc, char *argv[]) {
         replay_control_publish(&g_sources[g_selected], active);
         live_status_publish(&g_sources[0], active, g_live_mode, live_port);
 
-        // Tap-and-hold wheel gesture, armed only for multi-drone replay. Runs before
-        // the camera handler: while the wheel owns the gesture (PENDING/OPEN) camera
-        // input is suppressed; resetting prev_count makes handle_touch re-seed when
-        // it takes over again, so neither hand-off jumps the camera.
+        // Tap-and-hold wheel gesture, armed for any active session (it now hosts both
+        // "Change View" and, with 2+ drones, "Select Drone"). Runs before the camera
+        // handler: while the wheel owns the gesture (PENDING/OPEN) camera input is
+        // suppressed; resetting prev_count makes the camera re-seed when it takes over
+        // again, so neither hand-off jumps the camera.
         bool wheel_owns = false;
         {
             int touch_count = GetTouchPointCount();
             Vector2 touch = (touch_count > 0)
                 ? GetTouchPosition(0)
                 : (Vector2){ g_wheel.finger_x, g_wheel.finger_y };
-            if (g_source_count >= 2 && !g_live_mode) {
+            if (g_source_count >= 1) {
                 wheel_owns = wheel_gesture_update(&g_wheel, touch_count,
                                                   touch.x, touch.y, GetFrameTime());
             }
@@ -860,16 +978,39 @@ int main(int argc, char *argv[]) {
         }
         if (wheel_owns) {
             prev_count = -1;
-        } else {
+        } else if (free_track_mode) {
             handle_touch(&scene.camera, &orbit_target,
                          &prev_count, &prev_touch,
                          &prev_pinch_dist, &prev_mid);
+        } else {
+            handle_view_touch(&scene, &prev_count, &prev_touch,
+                              &prev_pinch_dist, &prev_mid);
         }
+
+        // Chase/FPV/ortho read no input in scene_update_camera — touch mutated their params
+        // above, so this just recomputes the camera to follow the selected vehicle.
+        if (!free_track_mode) {
+            scene_update_camera(&scene, vehicles[g_selected].position,
+                                vehicles[g_selected].rotation);
+        }
+
+        // Publish the active view so the wheel overlay can mark the current slice.
+        view_control_publish(scene.cam_mode, scene.ortho_mode, ortho_panel_visible);
 
         hud_update(&g_hud,
                    active ? g_sources[g_selected].state.time_usec : 0,
                    active ? g_sources[g_selected].connected : false,
                    GetFrameTime());
+
+        // The 3-up ortho panel renders to off-screen textures, which must happen outside
+        // BeginDrawing/BeginMode3D.
+        ortho.visible = ortho_panel_visible;
+        if (ortho.visible) {
+            int panel_count = active ? g_source_count : 1;
+            ortho_panel_update(&ortho, vehicles[g_selected].position);
+            ortho_panel_render(&ortho, vehicles, panel_count, g_selected, scene.theme,
+                               /*corr_mode=*/0, /*pinned=*/NULL, /*pinned_count=*/0);
+        }
 
         BeginDrawing();
             scene_draw_sky(&scene);
@@ -886,6 +1027,9 @@ int main(int argc, char *argv[]) {
                                  /*classic_colors=*/false);
                 }
             EndMode3D();
+
+            // Ground fill for ortho side views (front/back/left/right); no-op otherwise.
+            scene_draw_ortho_ground(&scene, GetScreenWidth(), GetScreenHeight());
 
             if (g_source_count > 1) {
                 draw_edge_indicators(vehicles, g_source_count, g_selected,
@@ -913,6 +1057,17 @@ int main(int argc, char *argv[]) {
                              g_ghost_mode, g_has_tier3, has_awaiting_gps);
                 }
             }
+
+            // Composite the 3-up ortho panel on top of the HUD (replay/live alike).
+            if (ortho.visible) {
+                int panel_count = active ? g_source_count : 1;
+                ortho_panel_draw(&ortho, GetScreenHeight(), /*hud_bar_h=*/0,
+                                 /*top_inset=*/view_control_top_inset(),
+                                 scene.theme, g_hud.font_label,
+                                 vehicles, panel_count, g_selected, trail_mode,
+                                 /*corr_mode=*/0, /*pinned=*/NULL, /*pinned_count=*/0,
+                                 /*show_axes=*/true);
+            }
         EndDrawing();
     }
 
@@ -920,6 +1075,7 @@ int main(int argc, char *argv[]) {
     g_source_count = 0;
     hud_cleanup(&g_hud);
     for (int i = 0; i < vehicle_inited_count; i++) vehicle_cleanup(&vehicles[i]);
+    ortho_panel_cleanup(&ortho);
     scene_cleanup(&scene);
     SetLoadFileTextCallback(NULL);
     SetLoadFileDataCallback(NULL);

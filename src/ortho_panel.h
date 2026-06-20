@@ -21,7 +21,11 @@ void ortho_panel_update(ortho_panel_t *op, Vector3 vehicle_pos);
 void ortho_panel_render(ortho_panel_t *op, const vehicle_t *vehicles,
                         int vehicle_count, int selected, const theme_t *theme,
                         int corr_mode, const int *pinned, int pinned_count);
+// top_inset reserves space at the top of the screen (e.g. a platform overlay bar) so the
+// top mini-view is not hidden behind it; the column stays anchored to the bottom. Pass 0
+// when nothing overlaps the top.
 void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
+                      int top_inset,
                       const theme_t *theme, Font font,
                       const vehicle_t *vehicles, int vehicle_count,
                       int selected, int trail_mode,
