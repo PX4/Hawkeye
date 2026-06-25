@@ -137,6 +137,15 @@ fun WheelMenu(
                     radius = style.glyphRadius.toPx(),
                     center = Offset(gx, gy - style.glyphLift.toPx()),
                 )
+                // Halo ring marks the currently-active choice (e.g. the live camera view).
+                if (item.isActive) {
+                    drawCircle(
+                        color = style.hoveredBorderColor,
+                        radius = style.glyphRadius.toPx() * 2.2f,
+                        center = Offset(gx, gy - style.glyphLift.toPx()),
+                        style = Stroke(width = edgeW),
+                    )
+                }
                 val label = textMeasurer.measure(item.label, labelStyle, maxLines = 1)
                 drawText(
                     textLayoutResult = label,

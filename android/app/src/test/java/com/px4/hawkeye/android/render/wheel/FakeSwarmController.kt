@@ -1,4 +1,4 @@
-package com.px4.hawkeye.android.render.swarm
+package com.px4.hawkeye.android.render.wheel
 
 import com.px4.hawkeye.android.render.SwarmController
 import com.px4.hawkeye.android.render.SwarmWheelSnapshot

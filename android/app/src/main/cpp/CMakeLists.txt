@@ -27,6 +27,7 @@ add_library(hawkeye SHARED
     android_main.c
     replay_jni.c
     swarm_jni.c
+    view_jni.c
     ${HAWKEYE_SRC}/scene.c
     ${HAWKEYE_SRC}/vehicle.c
     ${HAWKEYE_SRC}/theme.c

@@ -27,14 +27,15 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.px4.hawkeye.android.render.NativeLiveStatusController
 import com.px4.hawkeye.android.render.NativeReplayController
 import com.px4.hawkeye.android.render.NativeSwarmController
+import com.px4.hawkeye.android.render.NativeViewController
 import com.px4.hawkeye.android.render.RenderMode
 import com.px4.hawkeye.android.render.RendererLauncher
 import com.px4.hawkeye.android.render.live.LiveStatusRoot
 import com.px4.hawkeye.android.render.live.LiveStatusViewModel
-import com.px4.hawkeye.android.render.swarm.SwarmWheelRoot
-import com.px4.hawkeye.android.render.swarm.SwarmWheelViewModel
 import com.px4.hawkeye.android.render.transport.TransportRoot
 import com.px4.hawkeye.android.render.transport.TransportViewModel
+import com.px4.hawkeye.android.render.wheel.RootWheelRoot
+import com.px4.hawkeye.android.render.wheel.RootWheelViewModel
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 
 /**
@@ -87,10 +88,13 @@ class HawkeyeActivity :
             LiveStatusViewModel(NativeLiveStatusController(), deviceIp) as T
     }
 
-    private val swarmWheelViewModelFactory = object : ViewModelProvider.Factory {
+    // Shared with the media-bar inset plumbing below, so both talk to the same control surface.
+    private val viewController = NativeViewController()
+
+    private val rootWheelViewModelFactory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            SwarmWheelViewModel(NativeSwarmController(), droneLabels) as T
+            RootWheelViewModel(NativeSwarmController(), viewController, droneLabels) as T
     }
 
     private var overlay: ComposeView? = null
@@ -208,12 +212,20 @@ class HawkeyeActivity :
         }
         windowManager.addView(composeView, params)
         overlay = composeView
+
+        // Tell the renderer how much of the top the media bar covers, so the 3-up ortho
+        // panel drops below it instead of hiding behind it. The overlay spans the full
+        // display width at the top, so its measured height is the inset in surface px.
+        composeView.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            viewController.setTopInset(v.height)
+        }
     }
 
     /**
-     * Adds the swarm drone-selection wheel as a second, full-screen panel above the renderer
-     * (and above the transport bar — added later, so it z-orders on top; it only draws while
-     * a hold gesture is in progress). Replay sessions only.
+     * Adds the root wheel as a second, full-screen panel above the renderer (and above the
+     * transport bar — added later, so it z-orders on top; it only draws while a hold gesture
+     * is in progress). Armed in every session (replay and live): the wheel hosts Change View
+     * always, plus Select Drone with 2+ drones.
      *
      * The transport panel and this one split the overlay duties by touch policy, which is
      * window-global: the transport bar must RECEIVE touches (its wrap-height strip passes
@@ -222,7 +234,7 @@ class HawkeyeActivity :
      * FLAG_NOT_TOUCHABLE and MATCH_PARENT height here.
      */
     private fun attachWheelOverlay() {
-        if (wheelOverlay != null || isLiveMode) return
+        if (wheelOverlay != null) return
         val composeView = ComposeView(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             setViewTreeLifecycleOwner(this@HawkeyeActivity)
@@ -230,10 +242,10 @@ class HawkeyeActivity :
             setViewTreeSavedStateRegistryOwner(this@HawkeyeActivity)
             setContent {
                 HawkeyeTheme {
-                    SwarmWheelRoot(
+                    RootWheelRoot(
                         viewModel = ViewModelProvider(
-                            this@HawkeyeActivity, swarmWheelViewModelFactory,
-                        )[SwarmWheelViewModel::class.java],
+                            this@HawkeyeActivity, rootWheelViewModelFactory,
+                        )[RootWheelViewModel::class.java],
                     )
                 }
             }

@@ -1295,7 +1295,8 @@ static void frame(void *arg) {
         // Ortho panel (main.c:1409)
         if (g.hud.mode != HUD_TACTICAL) {
             int bar_h = g.show_hud ? hud_bar_height(&g.hud, sh) : 0;
-            ortho_panel_draw(&g.ortho, sh, bar_h, g.scene.theme, g.hud.font_label,
+            ortho_panel_draw(&g.ortho, sh, bar_h, /*top_inset=*/0,
+                             g.scene.theme, g.hud.font_label,
                              g.vehicles, g.vehicle_count, g.selected, g.trail_mode,
                              g.corr_mode, g.hud.pinned, g.hud.pinned_count,
                              g.show_axes);
