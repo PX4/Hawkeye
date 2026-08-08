@@ -26,6 +26,11 @@ runs:
     - name: Install NDK and CMake
       shell: bash
       run: |
+        # A composite action's `shell: bash` runs with -o pipefail, unlike a workflow
+        # run step. sdkmanager stops reading once the licenses are accepted, which kills
+        # `yes` with SIGPIPE and would fail the pipeline on 141. Only sdkmanager's own
+        # exit status is meaningful here, and -e still catches that.
+        set +o pipefail
         yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
           "ndk;30.0.14904198" \
           "cmake;3.22.1"

@@ -52,7 +52,10 @@ for entry in \
     assets/shaders/ \
     assets/fonts/ \
     assets/themes/ ; do
-    if ! printf '%s\n' "$listing" | grep -qF "$entry"; then
+    # Herestring rather than a pipe: grep -q exits on the first match, and under
+    # pipefail a writer killed by the resulting SIGPIPE would fail the pipeline and
+    # report a present entry as missing once the listing outgrows the pipe buffer.
+    if ! grep -qF "$entry" <<<"$listing"; then
         echo "APK is missing ${entry}" >&2
         exit 1
     fi
