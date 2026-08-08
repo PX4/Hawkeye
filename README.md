@@ -24,7 +24,7 @@ brew install PX4/px4/hawkeye
 Download the `.deb` from the [latest release](https://github.com/PX4/Hawkeye/releases/latest):
 
 ```bash
-sudo dpkg -i hawkeye-*.deb
+sudo dpkg -i hawkeye_*.deb
 ```
 
 ### Windows
@@ -32,6 +32,12 @@ sudo dpkg -i hawkeye-*.deb
 Download `hawkeye-<version>-windows-x64.zip` from the [latest release](https://github.com/PX4/Hawkeye/releases/latest), extract it anywhere, and run `hawkeye.exe`.
 
 On first launch, Windows SmartScreen may warn that the binary is from an unknown publisher — click "More info" → "Run anyway". The ZIP is unsigned; we're working on winget distribution to remove this warning.
+
+### Android
+
+Download `hawkeye-<version>-android-unsigned.apk` from the [latest release](https://github.com/PX4/Hawkeye/releases/latest). It requires Android 10 or newer and bundles both `arm64-v8a` and `x86_64`.
+
+The APK is unsigned and cannot be installed as downloaded. Sign it with your own key first; see the [Android README](./android/README.md) for the commands.
 
 ### Source builds
 

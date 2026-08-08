@@ -74,6 +74,7 @@ export default defineConfig({
         items: [
           { text: 'Building from source', link: '/developer/build' },
           { text: 'Testing', link: '/developer/testing' },
+          { text: 'Releasing', link: '/developer/releasing' },
         ],
       },
     ],

@@ -166,21 +166,13 @@ Fakes (in-memory implementations of the domain interface) catch more real bugs t
 
 ## Loading flight logs
 
-The app accepts `.ulg` files via Android `VIEW` and `SEND` intents — open a `.ulg` from Drive, Files, or Gmail and pick Hawkeye. There is no in-app file picker yet.
+Logs are imported through the replay library screen, which opens the system document picker via `ActivityResultContracts.OpenDocument()`. ULog has no registered MIME type, so the picker accepts `*/*`. Import is a raw byte copy with no format check, so a file that isn't a valid ULog is rejected when playback starts, not when it is picked. Imported payloads live in the app's library directory with their metadata in Room (`feature/replay/data/`), so a log only has to be picked once.
 
-Mechanism: the activity receives the inbound intent, copies the file bytes via `ContentResolver` to `filesDir/inbox/current.ulg` (via `.tmp` + atomic rename), and writes a millis token to `filesDir/inbox/.ready`. The native render loop checks that sentinel at roughly 1 Hz, reads its contents, and reloads the replay when the token changes, so re-sharing a different `.ulg` into the running app swaps the playback live. The activity uses `launchMode="singleTop"`, so if Hawkeye is already at the top, subsequent intents are delivered via `onNewIntent` to the existing instance.
+Mechanism: starting playback stages the selected library payloads into `filesDir/inbox/`. The first drone keeps the name `current.ulg` and the rest become `swarm_<i>.ulg`, then a `<millis>` token (or `<millis> <count>` for a swarm) is written to `filesDir/inbox/.ready`. The sentinel is bumped only after the whole batch has copied, so any I/O failure leaves the inbox exactly as the still-unchanged token describes it. The native render loop polls that sentinel at roughly 1 Hz and reloads the replay when the token changes.
 
-To test from the command line:
+Live mode uses the same directory: `RendererLauncher` writes an `inbox/.live` marker containing `<millis> <port>`, and native startup compares it against the replay `.ready` token, newest wins.
 
-```bash
-adb push some-flight.ulg /sdcard/Download/
-adb shell am start -a android.intent.action.VIEW \
-    -d "file:///sdcard/Download/some-flight.ulg" \
-    -t application/octet-stream \
-    com.px4.hawkeye.android/.IntentRouterActivity
-```
-
-`IntentRouterActivity` is the exported trampoline that receives `VIEW`/`SEND` intents; the native renderer (`HawkeyeActivity`) is not exported and is launched internally.
+The manifest declares no `VIEW` or `SEND` intent filters, so logs cannot currently be opened by sharing them into Hawkeye from Drive, Files, or Gmail.
 
 ## Shader Compatibility
 
@@ -224,10 +216,20 @@ The `assets/` directory uses symlinks into the parent repo (fonts, models, shade
 
 ## Requirements
 
-- Android SDK (API 29+)
-- NDK 30.0.14904198
-- CMake 3.22+
-- A device or emulator with OpenGL ES 3.0 support
+To build:
+
+- JDK 21
+- Android SDK Platform 36.1, set by `compileSdk` in `app/build.gradle.kts`
+- NDK 30.0.14904198, exactly; `ndkVersion` pins it and AGP will not substitute another
+- CMake 3.22.1, exactly; `externalNativeBuild` pins it the same way
+
+Gradle comes from the wrapper, so there is nothing to install for it.
+
+To run:
+
+- Android 10 (API 29) or newer, set by `minSdk`
+- An `arm64-v8a` or `x86_64` device or emulator, since those are the only ABIs built
+- OpenGL ES 3.0
 
 ## Building
 
@@ -237,6 +239,24 @@ The `assets/` directory uses symlinks into the parent repo (fonts, models, shade
 
 Raylib 5.5 is fetched automatically by CMake on the first build. Built ABIs: `arm64-v8a`, `x86_64`.
 
+### Release builds
+
+```bash
+./gradlew assembleRelease -PhawkeyeVersionName=0.4.0
+```
+
+`hawkeyeVersionName` sets the APK `versionName`, and `versionCode` is derived from it as `major * 1000000 + minor * 1000 + patch`, so `0.4.0` becomes `4000` and `1.2.3` becomes `1002003`. The value is parsed strictly: anything that isn't `MAJOR.MINOR.PATCH` with an optional suffix, or that has a component outside `0..999`, fails the build rather than producing a misleading version code. Omit the property and the build falls back to `0.0.0-dev` with version code `1`, which is why `assembleDebug` needs no flags. The release workflow passes the value from the git tag; see [Releasing](https://px4.github.io/Hawkeye/developer/releasing) for the full picture.
+
+The output is `app/build/outputs/apk/release/app-release-unsigned.apk`. There is no signing config in the project, so the APK is unsigned and cannot be installed until you sign it yourself (see below).
+
+To run the same checks CI runs against a release APK (both ABIs present, all four asset trees packaged, version as expected):
+
+```bash
+scripts/verify-release-apk.sh app/build/outputs/apk/release 0.4.0
+```
+
+AGP maps the `release` build type to CMake `RelWithDebInfo`, not `Release`. Native objects therefore land in a `.cxx/RelWithDebInfo/` tree separate from the debug one, and the first release build recompiles raylib from scratch even if a debug build is already warm.
+
 ## Deploying
 
 ```bash
@@ -245,4 +265,39 @@ adb shell am start -n com.px4.hawkeye.android/.MainActivity
 ```
 
 `MainActivity` is the launcher (the Compose shell). `HawkeyeActivity` is `exported="false"` and is launched from within the app, so it can't be started directly from `adb`.
+
+### Signing a release APK
+
+The release APK is unsigned, so `adb install` rejects it. Generate a key once, then align and sign before installing. `zipalign` and `apksigner` ship with the SDK build tools; substitute your installed version for `36.0.0`.
+
+```bash
+keytool -genkeypair -v -keystore hawkeye.jks -alias hawkeye \
+    -keyalg RSA -keysize 2048 -validity 10000
+
+$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign -p -f 4 \
+    app/build/outputs/apk/release/app-release-unsigned.apk hawkeye-aligned.apk
+
+$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner sign \
+    --ks hawkeye.jks --out hawkeye.apk hawkeye-aligned.apk
+
+adb install -r hawkeye.apk
+```
+
+Keep the keystore out of the repo. Reusing the same key across builds is what lets you install over a previous version instead of having to uninstall first.
+
+## Continuous Integration
+
+Three CI jobs build this app:
+
+| Workflow      | Job             | Variant | Runs on                                        |
+| ------------- | --------------- | ------- | ---------------------------------------------- |
+| `android.yml` | `build`         | Debug   | Pull requests, pushes to main, manual dispatch |
+| `android.yml` | `release-build` | Release | Pushes to main, manual dispatch                |
+| `release.yml` | `android-apk`   | Release | `v*` tag pushes only                           |
+
+`release-build` runs the same `assembleRelease` task and the same `scripts/verify-release-apk.sh` check the release uses, so a break shows up on a normal merge rather than on a live tag. It is skipped on pull requests to keep review turnaround fast, and can be triggered from a branch with `gh workflow run android.yml --ref <branch>`.
+
+All three jobs share `.github/actions/setup-android-build` for the toolchain install and caching, so the NDK and CMake versions are pinned in one place.
+
+`android.yml` triggers on the repo-root `src/`, `lib/`, `fonts/`, `models/`, `shaders/`, and `themes/` directories as well as `android/`. The native library compiles source files out of the root `src/` tree and `app/src/main/assets/` is symlinks into the root asset directories, so a desktop-side change can break this app and has to run Android CI.
 

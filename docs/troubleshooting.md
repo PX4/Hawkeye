@@ -199,6 +199,33 @@ Common fixes:
 - **Linux**: install the proprietary NVIDIA or AMD driver (Mesa's OpenGL implementation should work but has been a source of issues)
 - **Windows**: reinstall the latest graphics driver from the GPU vendor's website
 
+## Android
+
+### The downloaded APK won't install
+
+The release APK is published unsigned, so the package installer rejects it.
+Confirm that is the cause with `apksigner` from the Android SDK build tools:
+
+```sh
+apksigner verify hawkeye-<version>-android-unsigned.apk
+```
+
+An unsigned APK reports `DOES NOT VERIFY` with `Missing META-INF/MANIFEST.MF`.
+Sign it with your own key before installing.
+The [Android README](https://github.com/PX4/Hawkeye/blob/main/android/README.md) has the `keytool`, `zipalign`, and `apksigner` commands.
+
+### The APK installs on one device but not another
+
+The APK bundles `arm64-v8a` and `x86_64` only.
+32-bit ARM devices have no matching native library and are not supported.
+Check what the device reports:
+
+```sh
+adb shell getprop ro.product.cpu.abilist
+```
+
+If that list contains neither `arm64-v8a` nor `x86_64`, the device cannot run Hawkeye.
+
 ## MAVLink port conflicts
 
 ### `bind: Address already in use`
@@ -222,7 +249,7 @@ If this page doesn't solve your problem:
 1. **Check the Hawkeye GitHub issues** for similar reports: [github.com/PX4/Hawkeye/issues](https://github.com/PX4/Hawkeye/issues)
 2. **File a new issue** with:
    - Your OS and version
-   - Build type (`make` debug / `make release` / package install)
+   - Build type (`make` debug / `make release` / package install / Android APK)
    - Reproduction steps
    - Full console output from launch to crash / error
    - Relevant log file if it's a ULog parsing issue (sanitize private data first)

@@ -297,6 +297,46 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ── Job 2e: Android universal APK ─────────────────────────────────────────
+  android-apk:
+    name: Android (APK)
+    needs: source-tarball
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: ./.github/actions/setup-android-build
+        with:
+          cxx-cache-prefix: ndk-release
+
+      - name: Build release APK
+        working-directory: android
+        env:
+          VERSION: ${{ needs.source-tarball.outputs.version }}
+        run: ./gradlew assembleRelease -PhawkeyeVersionName="$VERSION"
+
+      - name: Verify and stage APK
+        id: apk
+        env:
+          VERSION: ${{ needs.source-tarball.outputs.version }}
+        run: |
+          set -euo pipefail
+          SRC=$(android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release "$VERSION")
+          # Dropping "-unsigned" when a signing config lands means updating the asset name
+          # in docs/installation.md, docs/developer/releasing.md, docs/troubleshooting.md,
+          # and README.md.
+          NAME="hawkeye-${VERSION}-android-unsigned.apk"
+          cp "$SRC" "$NAME"
+          echo "file=${NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK to release
+        run: gh release upload "${{ github.ref_name }}" "${{ steps.apk.outputs.file }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ── Job 3: Update Homebrew tap ─────────────────────────────────────────────
   update-tap:
     name: Update Homebrew tap

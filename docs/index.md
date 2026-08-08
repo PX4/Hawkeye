@@ -41,7 +41,7 @@ features:
     link: /views
     linkText: Views guide
   - title: Zero Dependencies
-    details: Built on Raylib and MAVLink. Ships as a single binary. macOS, Linux, and Windows supported out of the box.
+    details: Built on Raylib and MAVLink. Ships as a single binary on macOS, Linux, and Windows, plus an Android APK.
     link: /installation
     linkText: Install
 ---
