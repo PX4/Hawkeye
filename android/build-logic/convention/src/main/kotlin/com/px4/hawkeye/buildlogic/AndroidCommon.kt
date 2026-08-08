@@ -5,6 +5,8 @@ import org.gradle.api.JavaVersion
 import org.gradle.api.Project
 
 internal const val PROJECT_COMPILE_SDK = 36
+// Raising this means updating the "Android 10 (API 29)" claim in docs/installation.md,
+// docs/developer/releasing.md, and README.md.
 internal const val PROJECT_MIN_SDK = 29
 internal const val PROJECT_TARGET_SDK = 36
 

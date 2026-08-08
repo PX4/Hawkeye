@@ -2,6 +2,31 @@ plugins {
     id("hawkeye.android.application")
 }
 
+// Release builds take their version from the git tag, passed as
+// -PhawkeyeVersionName=<x.y.z> by .github/workflows/release.yml. Local and CI debug
+// builds fall back to a dev version so no extra flags are needed.
+val hawkeyeVersionName: String =
+    providers.gradleProperty("hawkeyeVersionName").getOrElse("0.0.0-dev")
+
+// Monotonic code derived from the semver: 0.4.0 -> 4000, 1.2.3 -> 1002003.
+//
+// Parsed strictly. A malformed version has to fail the build rather than degrade to a
+// low code, because Android refuses any upgrade whose version code is not greater than
+// the installed one, and a silently-wrong code would ship in a release.
+val hawkeyeVersionCode: Int = run {
+    val parts = hawkeyeVersionName.substringBefore('-').split('.')
+    require(parts.size == 3) {
+        "hawkeyeVersionName must be MAJOR.MINOR.PATCH with an optional -suffix, got '$hawkeyeVersionName'"
+    }
+    val (major, minor, patch) = parts.map { part ->
+        part.toIntOrNull()?.takeIf { it in 0..999 }
+            ?: error("hawkeyeVersionName component '$part' is not an integer in 0..999, from '$hawkeyeVersionName'")
+    }
+    // The 1000 radix leaves room for two-digit and three-digit minor/patch numbers.
+    // 0.0.0 is only reachable via the dev fallback above, which needs a floor of 1.
+    (major * 1_000_000 + minor * 1_000 + patch).coerceAtLeast(1)
+}
+
 android {
     namespace = "com.px4.hawkeye.android"
     compileSdk {
@@ -22,13 +47,16 @@ android {
     defaultConfig {
         applicationId = "com.px4.hawkeye.android"
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = hawkeyeVersionCode
+        versionName = hawkeyeVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         externalNativeBuild {
             cmake {
+                // Changing this list means updating android/scripts/verify-release-apk.sh
+                // and the ABI list documented in docs/installation.md,
+                // docs/developer/releasing.md, docs/troubleshooting.md, and README.md.
                 abiFilters += listOf("arm64-v8a", "x86_64")
             }
         }
