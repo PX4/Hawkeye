@@ -10,20 +10,32 @@
 # Resolves the APK from AGP's output-metadata.json rather than globbing the output
 # directory, so it stays correct if a second variant or an ABI split is ever added.
 #
-# Usage:   verify-release-apk.sh <apk-output-dir> <expected-version-name>
+# With --signed, additionally requires the APK to carry a valid signature, verified by
+# apksigner from the newest installed build-tools.
+#
+# Usage:   verify-release-apk.sh <apk-output-dir> <expected-version-name> [--signed]
 # Example: android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release 0.4.0
 #
 # Prints the resolved APK path on stdout; diagnostics go to stderr.
 
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-    echo "usage: $0 <apk-output-dir> <expected-version-name>" >&2
+usage() {
+    echo "usage: $0 <apk-output-dir> <expected-version-name> [--signed]" >&2
     exit 2
+}
+
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    usage
 fi
 
 output_dir=$1
 expected_version=$2
+signed=0
+if [ "$#" -eq 3 ]; then
+    [ "$3" = "--signed" ] || usage
+    signed=1
+fi
 metadata="${output_dir}/output-metadata.json"
 
 if [ ! -f "$metadata" ]; then
@@ -73,6 +85,21 @@ fi
 if [ "$version_code" -lt 1 ]; then
     echo "versionCode is '${version_code}', which Android will not accept" >&2
     exit 1
+fi
+
+if [ "$signed" -eq 1 ]; then
+    sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+    if [ -z "$sdk" ] || [ ! -d "${sdk}/build-tools" ]; then
+        echo "--signed needs ANDROID_SDK_ROOT or ANDROID_HOME pointing at an SDK with build-tools" >&2
+        exit 1
+    fi
+    # Any recent apksigner can verify; the newest installed build-tools wins.
+    apksigner=$(find "${sdk}/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -n 1)
+    if [ -z "$apksigner" ]; then
+        echo "no apksigner found under ${sdk}/build-tools" >&2
+        exit 1
+    fi
+    "$apksigner" verify --print-certs "$apk" >&2
 fi
 
 echo "$apk"

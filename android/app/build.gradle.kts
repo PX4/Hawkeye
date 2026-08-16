@@ -8,13 +8,18 @@ plugins {
 val hawkeyeVersionName: String =
     providers.gradleProperty("hawkeyeVersionName").getOrElse("0.0.0-dev")
 
-// Monotonic code derived from the semver: 0.4.0 -> 4000, 1.2.3 -> 1002003.
+// Monotonic code derived from the semver: 0.4.0-rc1 -> 400001, 0.4.0 -> 400099,
+// 1.2.3 -> 100200399. The rc component orders every prerelease below its final
+// release, so both can ship to Google Play, which refuses a version code it has
+// already seen.
 //
 // Parsed strictly. A malformed version has to fail the build rather than degrade to a
 // low code, because Android refuses any upgrade whose version code is not greater than
 // the installed one, and a silently-wrong code would ship in a release.
 val hawkeyeVersionCode: Int = run {
-    val parts = hawkeyeVersionName.substringBefore('-').split('.')
+    val base = hawkeyeVersionName.substringBefore('-')
+    val suffix = hawkeyeVersionName.substringAfter('-', missingDelimiterValue = "")
+    val parts = base.split('.')
     require(parts.size == 3) {
         "hawkeyeVersionName must be MAJOR.MINOR.PATCH with an optional -suffix, got '$hawkeyeVersionName'"
     }
@@ -22,10 +27,32 @@ val hawkeyeVersionCode: Int = run {
         part.toIntOrNull()?.takeIf { it in 0..999 }
             ?: error("hawkeyeVersionName component '$part' is not an integer in 0..999, from '$hawkeyeVersionName'")
     }
-    // The 1000 radix leaves room for two-digit and three-digit minor/patch numbers.
-    // 0.0.0 is only reachable via the dev fallback above, which needs a floor of 1.
-    (major * 1_000_000 + minor * 1_000 + patch).coerceAtLeast(1)
+    // The 100_000_000 radix overflows Google Play's version code cap of 2,100,000,000
+    // once major exceeds 20.
+    require(major <= 20) {
+        "hawkeyeVersionName major '$major' pushes the version code past Google Play's cap, from '$hawkeyeVersionName'"
+    }
+    // A final release takes 99 so it sorts above every rc of the same version; dev and
+    // ci builds take 0 so they sort below both.
+    val rc = when {
+        suffix.isEmpty() -> 99
+        suffix == "dev" || suffix == "ci" -> 0
+        suffix.matches(Regex("rc[1-9][0-9]?")) ->
+            suffix.removePrefix("rc").toInt().also {
+                require(it <= 98) { "rc99 collides with the final release's version code, from '$hawkeyeVersionName'" }
+            }
+        else -> error("hawkeyeVersionName suffix '$suffix' is not rcN, dev, or ci, from '$hawkeyeVersionName'")
+    }
+    // 0.0.0-dev is only reachable via the dev fallback above, which needs a floor of 1.
+    (major * 100_000_000 + minor * 100_000 + patch * 100 + rc).coerceAtLeast(1)
 }
+
+// Release signing activates only when the environment provides an upload keystore
+// (HAWKEYE_UPLOAD_KEYSTORE is a path to a decoded .jks). CI injects it from repository
+// secrets; local and PR builds have none and keep producing an unsigned release APK.
+val uploadKeystore = providers.environmentVariable("HAWKEYE_UPLOAD_KEYSTORE")
+val uploadKeystorePassword = providers.environmentVariable("HAWKEYE_UPLOAD_KEYSTORE_PASSWORD")
+val uploadKeyAlias = providers.environmentVariable("HAWKEYE_UPLOAD_KEY_ALIAS")
 
 android {
     namespace = "com.px4.hawkeye.android"
@@ -62,8 +89,23 @@ android {
         }
     }
 
+    signingConfigs {
+        if (uploadKeystore.isPresent) {
+            create("upload") {
+                storeFile = file(uploadKeystore.get())
+                storePassword = uploadKeystorePassword.get()
+                keyAlias = uploadKeyAlias.get()
+                // The upload keystore is PKCS12, which has a single password.
+                keyPassword = uploadKeystorePassword.get()
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (uploadKeystore.isPresent) {
+                signingConfig = signingConfigs.getByName("upload")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

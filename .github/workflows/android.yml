@@ -59,10 +59,15 @@ jobs:
   release-build:
     name: Release build
     # Skipped on pull requests to keep review turnaround fast. Runs on pushes to main and
-    # on workflow_dispatch so the task release.yml depends on is exercised before any tag
-    # is pushed, and so the ndk-release-* cache is warm when the release job runs.
+    # on workflow_dispatch so the tasks release.yml depends on are exercised before any
+    # tag is pushed, and so the ndk-release-* cache is warm when the release job runs.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # The secrets context is unavailable in a job-level if, so the keystore is routed
+    # through the job env and the signing steps are guarded on it. Forks have no secrets
+    # and build unsigned, exactly like a local checkout.
+    env:
+      UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
 
     steps:
       - uses: actions/checkout@v4
@@ -73,14 +78,31 @@ jobs:
         with:
           cxx-cache-prefix: ndk-release
 
-      - name: Build release APK
+      - name: Decode upload keystore
+        if: env.UPLOAD_KEYSTORE_B64 != ''
+        run: |
+          printf '%s' "$UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+          echo "HAWKEYE_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+
+      - name: Build release APK and AAB
         working-directory: android
-        run: ./gradlew assembleRelease -PhawkeyeVersionName=0.0.0-ci
+        env:
+          HAWKEYE_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          HAWKEYE_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+        run: ./gradlew assembleRelease bundleRelease -PhawkeyeVersionName=0.0.0-ci
 
       # The same verification the release job runs. This is the only genuinely new shell
       # in the release path, so exercising it here is the point of this job.
       - name: Verify APK
-        run: android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release 0.0.0-ci
+        run: |
+          if [ -n "$UPLOAD_KEYSTORE_B64" ]; then
+            android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release 0.0.0-ci --signed
+          else
+            android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release 0.0.0-ci
+          fi
+
+      - name: Verify AAB
+        run: android/scripts/verify-release-bundle.sh android/app/build/outputs/bundle/release/app-release.aab
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

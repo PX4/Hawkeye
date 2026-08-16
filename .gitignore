@@ -6,6 +6,8 @@ build-release/
 .dmux-hooks/
 
 # Android
+*.jks
+*.keystore
 android/local.properties
 android/.gradle/
 android/app/build/
