@@ -45,6 +45,13 @@ jobs:
 
       - uses: ./.github/actions/setup-android-build
 
+      # build-logic is an included build, so its tests are not reached by any app-side
+      # Gradle task and have to be invoked explicitly. They gate the versionCode
+      # derivation the release artifacts depend on.
+      - name: Build-logic tests
+        working-directory: android
+        run: ./gradlew -p build-logic :convention:test
+
       - name: Build
         working-directory: android
         run: ./gradlew assembleDebug

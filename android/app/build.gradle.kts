@@ -8,47 +8,10 @@ plugins {
 val hawkeyeVersionName: String =
     providers.gradleProperty("hawkeyeVersionName").getOrElse("0.0.0-dev")
 
-// Monotonic code derived from the semver: 0.4.0-rc1 -> 400001, 0.4.0 -> 400099,
-// 1.2.3 -> 100200399. The rc component orders every prerelease below its final
-// release, so both can ship to Google Play, which refuses a version code it has
-// already seen.
-//
-// Parsed strictly. A malformed version has to fail the build rather than degrade to a
-// low code, because Android refuses any upgrade whose version code is not greater than
-// the installed one, and a silently-wrong code would ship in a release.
-val hawkeyeVersionCode: Int = run {
-    val base = hawkeyeVersionName.substringBefore('-')
-    val suffix = hawkeyeVersionName.substringAfter('-', missingDelimiterValue = "")
-    val parts = base.split('.')
-    require(parts.size == 3) {
-        "hawkeyeVersionName must be MAJOR.MINOR.PATCH with an optional -suffix, got '$hawkeyeVersionName'"
-    }
-    val (major, minor, patch) = parts.map { part ->
-        part.toIntOrNull()?.takeIf { it in 0..999 }
-            ?: error("hawkeyeVersionName component '$part' is not an integer in 0..999, from '$hawkeyeVersionName'")
-    }
-    // The 100_000_000 radix overflows Google Play's version code cap of 2,100,000,000
-    // once major exceeds 20.
-    require(major <= 20) {
-        "hawkeyeVersionName major '$major' pushes the version code past Google Play's cap, from '$hawkeyeVersionName'"
-    }
-    // A final release takes 99 so it sorts above every rc of the same version; dev and
-    // ci builds take 0 so they sort below both. The empty-suffix branch also requires
-    // the absence of a '-', because a trailing-hyphen name like "0.4.0-" would otherwise
-    // silently take the final release's code and burn it on Google Play.
-    val rc = when {
-        suffix.isEmpty() && '-' !in hawkeyeVersionName -> 99
-        suffix == "dev" || suffix == "ci" -> 0
-        suffix.matches(Regex("rc[1-9][0-9]?")) ->
-            suffix.removePrefix("rc").toInt().also {
-                require(it <= 98) { "rc99 collides with the final release's version code, from '$hawkeyeVersionName'" }
-            }
-        else -> error("hawkeyeVersionName suffix '$suffix' is not rc1..rc98, dev, or ci, from '$hawkeyeVersionName'")
-    }
-    // 0.0.0-dev (the local fallback above) and CI's 0.0.0-ci both compute to 0, so the
-    // floor of 1 covers them both.
-    (major * 100_000_000 + minor * 100_000 + patch * 100 + rc).coerceAtLeast(1)
-}
+// Monotonic code derived from the semver: 0.4.0-rc1 -> 400001, 0.4.0 -> 400099. The
+// derivation and its rules live in build-logic (VersionCode.kt) behind a unit test,
+// because a silently wrong code would brick upgrades and ship in a release.
+val hawkeyeVersionCode: Int = com.px4.hawkeye.buildlogic.hawkeyeVersionCode(hawkeyeVersionName)
 
 // Release signing activates only when the environment provides an upload keystore
 // (HAWKEYE_UPLOAD_KEYSTORE is a path to a decoded .jks). CI injects it from repository
