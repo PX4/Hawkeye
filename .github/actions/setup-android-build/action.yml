@@ -1,7 +1,7 @@
 name: Set up Android build
 description: >
   Installs the pinned NDK and CMake and restores the Gradle and native build caches.
-  Shared by the debug and release CI jobs in android.yml and the android-apk release job,
+  Shared by the debug and release CI jobs in android.yml and the android release job,
   so the toolchain versions are pinned in one place.
 
 inputs:

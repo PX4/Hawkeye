@@ -203,16 +203,19 @@ Common fixes:
 
 ### The downloaded APK won't install
 
-The release APK is published unsigned, so the package installer rejects it.
-Confirm that is the cause with `apksigner` from the Android SDK build tools:
+Release APKs are signed, so a fresh install succeeds as downloaded.
+An install that fails over an existing Hawkeye has one of two causes:
+
+- The installed version has an equal or higher version code. Android refuses downgrades; uninstall first.
+- The installed build is self-signed, either a local build or a release from the unsigned era (v0.3.0 and earlier). Its certificate does not match the project's upload key, so the installer rejects the update. Uninstall once; updates work normally from then on.
+
+Check what a package is signed with using `apksigner` from the Android SDK build tools:
 
 ```sh
-apksigner verify hawkeye-<version>-android-unsigned.apk
+apksigner verify --print-certs hawkeye-<version>-android.apk
 ```
 
-An unsigned APK reports `DOES NOT VERIFY` with `Missing META-INF/MANIFEST.MF`.
-Sign it with your own key before installing.
-The [Android README](https://github.com/PX4/Hawkeye/blob/main/android/README.md) has the `keytool`, `zipalign`, and `apksigner` commands.
+An official release verifies and prints the project certificate; a build you signed yourself prints yours.
 
 ### The APK installs on one device but not another
 

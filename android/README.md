@@ -245,9 +245,9 @@ Raylib 5.5 is fetched automatically by CMake on the first build. Built ABIs: `ar
 ./gradlew assembleRelease -PhawkeyeVersionName=0.4.0
 ```
 
-`hawkeyeVersionName` sets the APK `versionName`, and `versionCode` is derived from it as `major * 1000000 + minor * 1000 + patch`, so `0.4.0` becomes `4000` and `1.2.3` becomes `1002003`. The value is parsed strictly: anything that isn't `MAJOR.MINOR.PATCH` with an optional suffix, or that has a component outside `0..999`, fails the build rather than producing a misleading version code. Omit the property and the build falls back to `0.0.0-dev` with version code `1`, which is why `assembleDebug` needs no flags. The release workflow passes the value from the git tag; see [Releasing](https://px4.github.io/Hawkeye/developer/releasing) for the full picture.
+`hawkeyeVersionName` sets the APK `versionName`, and `versionCode` is derived from it as `major * 100000000 + minor * 100000 + patch * 100 + rc`, where the rc component is `99` for a final version, `N` for an `rcN` suffix, and `0` for `dev` and `ci`, so `0.4.0-rc1` becomes `400001` and `0.4.0` becomes `400099`. The value is parsed strictly: anything that isn't `MAJOR.MINOR.PATCH` with an optional `rcN` suffix, that has a component outside `0..999`, or whose major exceeds `20` fails the build rather than producing a misleading version code. Omit the property and the build falls back to `0.0.0-dev` with version code `1`, which is why `assembleDebug` needs no flags. The release workflow passes the value from the git tag; see [Releasing](https://px4.github.io/Hawkeye/developer/releasing) for the full picture.
 
-The output is `app/build/outputs/apk/release/app-release-unsigned.apk`. There is no signing config in the project, so the APK is unsigned and cannot be installed until you sign it yourself (see below).
+The output is `app/build/outputs/apk/release/app-release-unsigned.apk`, unless the upload keystore environment variables are set (see [Release signing](#release-signing)), in which case it is a signed `app-release.apk`. An unsigned APK cannot be installed until you sign it yourself (see below).
 
 To run the same checks CI runs against a release APK (both ABIs present, all four asset trees packaged, version as expected):
 
@@ -266,9 +266,15 @@ adb shell am start -n com.px4.hawkeye.android/.MainActivity
 
 `MainActivity` is the launcher (the Compose shell). `HawkeyeActivity` is `exported="false"` and is launched from within the app, so it can't be started directly from `adb`.
 
-### Signing a release APK
+### Release signing
 
-The release APK is unsigned, so `adb install` rejects it. Generate a key once, then align and sign before installing. `zipalign` and `apksigner` ship with the SDK build tools; substitute your installed version for `36.0.0`.
+CI signs release builds with the project upload key when the environment provides it. `app/build.gradle.kts` activates the `upload` signing config only when `HAWKEYE_UPLOAD_KEYSTORE` (a path to a decoded keystore), `HAWKEYE_UPLOAD_KEYSTORE_PASSWORD`, and `HAWKEYE_UPLOAD_KEY_ALIAS` are set; the workflows decode the keystore from the `ANDROID_UPLOAD_KEYSTORE_BASE64` repository secret. Without those variables, `assembleRelease` produces an unsigned APK, which is what local builds and forks get.
+
+The release workflow also uploads the signed AAB from `bundleRelease` to the Google Play internal test track. Play App Signing re-signs it with a key Google holds, so a Play install and a sideloaded APK cannot upgrade over each other.
+
+### Signing an APK yourself
+
+A locally built release APK is unsigned, so `adb install` rejects it. Generate a key once, then align and sign before installing. `zipalign` and `apksigner` ship with the SDK build tools; substitute your installed version for `36.0.0`.
 
 ```bash
 keytool -genkeypair -v -keystore hawkeye.jks -alias hawkeye \
@@ -293,9 +299,9 @@ Three CI jobs build this app:
 | ------------- | --------------- | ------- | ---------------------------------------------- |
 | `android.yml` | `build`         | Debug   | Pull requests, pushes to main, manual dispatch |
 | `android.yml` | `release-build` | Release | Pushes to main, manual dispatch                |
-| `release.yml` | `android-apk`   | Release | `v*` tag pushes only                           |
+| `release.yml` | `android`       | Release | `v*` tag pushes only                           |
 
-`release-build` runs the same `assembleRelease` task and the same `scripts/verify-release-apk.sh` check the release uses, so a break shows up on a normal merge rather than on a live tag. It is skipped on pull requests to keep review turnaround fast, and can be triggered from a branch with `gh workflow run android.yml --ref <branch>`.
+`release-build` runs the same `assembleRelease` and `bundleRelease` tasks and the same `scripts/verify-release-apk.sh` and `scripts/verify-release-bundle.sh` checks the release uses, including the signed path when the keystore secrets are present, so a break shows up on a normal merge rather than on a live tag. It is skipped on pull requests to keep review turnaround fast, and can be triggered from a branch with `gh workflow run android.yml --ref <branch>`.
 
 All three jobs share `.github/actions/setup-android-build` for the toolchain install and caching, so the NDK and CMake versions are pinned in one place.
 

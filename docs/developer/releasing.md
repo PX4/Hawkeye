@@ -32,7 +32,7 @@ A tag produces six assets:
 | `hawkeye_<version>_amd64.deb`                  | Linux amd64 | `deb-amd64`      |
 | `hawkeye_<version>_arm64.deb`                  | Linux arm64 | `deb-arm64`      |
 | `hawkeye-<version>-windows-x64.zip`            | Windows x64 | `windows-x64`    |
-| `hawkeye-<version>-android-unsigned.apk`       | Android     | `android-apk`    |
+| `hawkeye-<version>-android.apk`                | Android     | `android`        |
 
 The `.deb` files use Debian policy naming with underscores, which is why the install command in [Installation](../installation.md) globs `hawkeye_*.deb` and not `hawkeye-*.deb`.
 
@@ -54,33 +54,27 @@ The two build systems receive it differently:
 | CMake        | `-DHAWKEYE_VERSION=<version>`    |
 | Gradle       | `-PhawkeyeVersionName=<version>` |
 
-`android/app/build.gradle.kts` computes the Android `versionCode` from that string as `major * 1000000 + minor * 1000 + patch`, so CI passes one value and Gradle derives the other:
+`android/app/build.gradle.kts` computes the Android `versionCode` from that string as `major * 100000000 + minor * 100000 + patch * 100 + rc`, so CI passes one value and Gradle derives the other:
 
-| Tag      | versionName | versionCode |
-| -------- | ----------- | ----------- |
-| `v0.3.0` | `0.3.0`     | 3000        |
-| `v0.4.0` | `0.4.0`     | 4000        |
-| `v1.2.3` | `1.2.3`     | 1002003     |
-| no tag   | `0.0.0-dev` | 1           |
+| Tag          | versionName | versionCode |
+| ------------ | ----------- | ----------- |
+| `v0.4.0-rc1` | `0.4.0-rc1` | 400001      |
+| `v0.4.0`     | `0.4.0`     | 400099      |
+| `v1.2.3`     | `1.2.3`     | 100200399   |
+| no tag       | `0.0.0-dev` | 1           |
 
+The rc component is what makes prerelease tags safe: a final release takes 99, an `rcN` suffix takes N (1 through 98), and the `dev` and `ci` fallbacks take 0, so every rc sorts below its final release, above the previous release, and each code can be uploaded to Google Play exactly once.
 A local build with no `-PhawkeyeVersionName` falls back to `0.0.0-dev`, so debug builds need no extra flags.
-The version is parsed strictly: a tag that is not `MAJOR.MINOR.PATCH` with an optional suffix, or that has a component outside `0..999`, fails the Android build rather than producing a misleading version code.
-
-::: warning
-A prerelease tag reuses the version code of the release it precedes.
-`v0.4.0-rc1` produces versionName `0.4.0-rc1` but versionCode `4000`, the same code the eventual `v0.4.0` gets, and Android refuses to install an APK whose version code is not greater than the installed one.
-Avoid prerelease tags until the derivation accounts for them.
-:::
+The version is parsed strictly: a tag that is not `MAJOR.MINOR.PATCH` with an optional `rcN` suffix, that has a component outside `0..999`, or whose major exceeds 20 (past which the derivation overflows Google Play's version code cap) fails the Android build rather than producing a misleading version code.
 
 ## The Android APK
 
-The `android-apk` job builds a single universal APK containing `arm64-v8a` and `x86_64`.
+The `android` job builds a single universal APK containing `arm64-v8a` and `x86_64`.
 There is no `armeabi-v7a` build, so 32-bit ARM devices are not supported.
 The minimum supported platform is Android 10 (API 29).
 
-The APK is unsigned.
-There is no signing configuration in the project and no keystore secret in the repository, so the artifact is named `-unsigned` to make that obvious.
-It has to be signed with your own key before it will install; see [Signing a release APK](https://github.com/PX4/Hawkeye/blob/main/android/README.md#signing-a-release-apk) in the Android README.
+The APK is signed with the project's upload key, which the job decodes from the `ANDROID_UPLOAD_KEYSTORE_BASE64`, `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, and `ANDROID_UPLOAD_KEY_ALIAS` repository secrets, and the asset installs as downloaded.
+A fork without those secrets falls back to the pre-signing behavior: the artifact is built unsigned, named `hawkeye-<version>-android-unsigned.apk` to make that obvious, and has to be signed before it will install; see [Signing an APK yourself](https://github.com/PX4/Hawkeye/blob/main/android/README.md#signing-an-apk-yourself) in the Android README.
 
 Because the APK cannot be launched on a CI runner without an emulator, `android/scripts/verify-release-apk.sh` asserts on its contents instead:
 
@@ -88,12 +82,25 @@ Because the APK cannot be launched on a CI runner without an emulator, `android/
 - All four asset trees are packaged: `assets/models/`, `assets/shaders/`, `assets/fonts/`, and `assets/themes/`.
   These are symlinks into the repository root, so the check catches a runner that failed to materialize them.
 - The `versionName` AGP recorded matches the tag, and the `versionCode` is one Android will accept.
+- With `--signed`, which the job passes whenever the keystore secrets are present, `apksigner verify` confirms the signature.
 
 That script takes the APK output directory and the expected version, so you can run the same check locally against your own build.
 
+## Google Play internal testing
+
+The same `android` job also runs `bundleRelease`, checks the resulting AAB with `android/scripts/verify-release-bundle.sh`, and uploads it to the Google Play internal test track under the Dronecode Foundation account.
+The upload step runs only when the `PLAY_SERVICE_ACCOUNT_JSON` secret is present; it authenticates as a Google Cloud service account granted release-to-testing permission on the app in the Play Console.
+Prerelease tags upload like any other tag; rc builds are what the internal track is for.
+Promotion beyond internal testing is manual in the Play Console.
+
+The AAB is not attached to the GitHub release.
+Google Play is its only destination, and Play App Signing re-signs it with the app signing key Google holds, so a Play install and a sideloaded APK carry different signatures and cannot upgrade over each other.
+
+Anyone who sideloaded a self-signed APK from a release cut before signing landed (v0.3.0 and earlier) has to uninstall it once before an official signed build will install; release notes should carry that reminder until it stops being relevant.
+
 ## Checking a release build before tagging
 
-`.github/workflows/android.yml` has a `release-build` job that runs the same `assembleRelease` task and the same verification script the release uses.
+`.github/workflows/android.yml` has a `release-build` job that runs the same `assembleRelease` and `bundleRelease` tasks and the same verification scripts the release uses, including the signed path when the keystore secrets are present.
 It runs on pushes to `main` and on manual dispatch, and is skipped on pull requests to keep review turnaround fast.
 
 Trigger it from a branch before tagging:

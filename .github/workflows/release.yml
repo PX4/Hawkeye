@@ -298,10 +298,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ── Job 2e: Android universal APK ─────────────────────────────────────────
-  android-apk:
-    name: Android (APK)
+  android:
+    name: Android
     needs: source-tarball
     runs-on: ubuntu-latest
+    # The secrets context is unavailable in every if condition, job-level and step-level
+    # alike, so presence is computed here as booleans: each expression result is the
+    # string "true" or "false", which is all the guards need, and no secret material
+    # lands in any step's environment.
+    env:
+      HAS_UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
+      HAS_PLAY_SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -312,11 +319,26 @@ jobs:
         with:
           cxx-cache-prefix: ndk-release
 
-      - name: Build release APK
+      # The keystore secret itself is scoped to this one step; later steps branch on the
+      # HAWKEYE_UPLOAD_KEYSTORE path this step exports rather than re-reading the secret,
+      # so no other step, including third-party actions, ever sees the keystore. A fork
+      # without secrets skips this step, builds the unsigned APK, and skips Play, which
+      # is exactly the pre-signing behavior.
+      - name: Decode upload keystore
+        if: env.HAS_UPLOAD_KEYSTORE == 'true'
+        env:
+          UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+          echo "HAWKEYE_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+
+      - name: Build release APK and AAB
         working-directory: android
         env:
           VERSION: ${{ needs.source-tarball.outputs.version }}
-        run: ./gradlew assembleRelease -PhawkeyeVersionName="$VERSION"
+          HAWKEYE_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          HAWKEYE_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+        run: ./gradlew assembleRelease bundleRelease -PhawkeyeVersionName="$VERSION"
 
       - name: Verify and stage APK
         id: apk
@@ -324,18 +346,43 @@ jobs:
           VERSION: ${{ needs.source-tarball.outputs.version }}
         run: |
           set -euo pipefail
-          SRC=$(android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release "$VERSION")
-          # Dropping "-unsigned" when a signing config lands means updating the asset name
-          # in docs/installation.md, docs/developer/releasing.md, docs/troubleshooting.md,
-          # and README.md.
-          NAME="hawkeye-${VERSION}-android-unsigned.apk"
+          if [ -n "${HAWKEYE_UPLOAD_KEYSTORE:-}" ]; then
+            SRC=$(android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release "$VERSION" --signed)
+            NAME="hawkeye-${VERSION}-android.apk"
+          else
+            SRC=$(android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release "$VERSION")
+            NAME="hawkeye-${VERSION}-android-unsigned.apk"
+          fi
           cp "$SRC" "$NAME"
           echo "file=${NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify AAB
+        run: |
+          if [ -n "${HAWKEYE_UPLOAD_KEYSTORE:-}" ]; then
+            android/scripts/verify-release-bundle.sh android/app/build/outputs/bundle/release/app-release.aab --signed
+          else
+            android/scripts/verify-release-bundle.sh android/app/build/outputs/bundle/release/app-release.aab
+          fi
 
       - name: Upload APK to release
         run: gh release upload "${{ github.ref_name }}" "${{ steps.apk.outputs.file }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The AAB goes to Google Play only; it is useless to sideloaders, so it is not
+      # attached to the GitHub release. Prerelease tags upload too: rc builds are what
+      # the internal track is for, and the version code scheme orders them correctly.
+      # Promotion beyond internal testing stays manual in the Play Console. The service
+      # account secret is scoped to this step, the only one that consumes it.
+      - name: Upload AAB to Play internal testing
+        if: env.HAS_PLAY_SERVICE_ACCOUNT == 'true'
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.px4.hawkeye.android
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
 
   # ── Job 3: Update Homebrew tap ─────────────────────────────────────────────
   update-tap:

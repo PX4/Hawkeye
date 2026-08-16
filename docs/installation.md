@@ -1,7 +1,7 @@
 # Installation
 
 Hawkeye ships as a Homebrew formula on macOS, a `.deb` package on Debian/Ubuntu, and a portable ZIP on Windows.
-Android builds are published as an unsigned APK for developers.
+Android builds are published as a signed APK and through Google Play internal testing.
 If you want the latest development build, see [Building from source](./developer/build.md).
 
 ## macOS (Homebrew)
@@ -42,16 +42,16 @@ To launch from any terminal, add the extracted folder to your `PATH`.
 
 ## Android
 
-Download `hawkeye-<version>-android-unsigned.apk` from the [Hawkeye releases page](https://github.com/PX4/Hawkeye/releases/latest).
+Download `hawkeye-<version>-android.apk` from the [Hawkeye releases page](https://github.com/PX4/Hawkeye/releases/latest) and install it.
+The APK is signed and installs as downloaded; Android asks you to allow installs from your browser or file manager the first time.
 
 The APK bundles both `arm64-v8a` and `x86_64`, so it runs on 64-bit ARM devices and in the Android emulator.
 It requires Android 10 (API 29) or newer and a GPU with OpenGL ES 3.0.
 
-::: info Unsigned APK
-The release APK ships unsigned and cannot be installed as downloaded.
-Sign it with your own key using `zipalign` and `apksigner` from the Android SDK build tools first.
-See the [Android README](https://github.com/PX4/Hawkeye/blob/main/android/README.md) for the exact commands.
-Signed distribution is on the roadmap.
+::: info Google Play internal testing
+Releases are also pushed to the Google Play internal test track.
+Ask a maintainer to add your Google account to the tester list if you prefer installs and automatic updates through Play.
+A Play install and a sideloaded APK are signed with different keys, so switching between them requires an uninstall.
 :::
 
 ## Verifying the install
