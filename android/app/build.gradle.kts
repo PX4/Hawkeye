@@ -33,26 +33,30 @@ val hawkeyeVersionCode: Int = run {
         "hawkeyeVersionName major '$major' pushes the version code past Google Play's cap, from '$hawkeyeVersionName'"
     }
     // A final release takes 99 so it sorts above every rc of the same version; dev and
-    // ci builds take 0 so they sort below both.
+    // ci builds take 0 so they sort below both. The empty-suffix branch also requires
+    // the absence of a '-', because a trailing-hyphen name like "0.4.0-" would otherwise
+    // silently take the final release's code and burn it on Google Play.
     val rc = when {
-        suffix.isEmpty() -> 99
+        suffix.isEmpty() && '-' !in hawkeyeVersionName -> 99
         suffix == "dev" || suffix == "ci" -> 0
         suffix.matches(Regex("rc[1-9][0-9]?")) ->
             suffix.removePrefix("rc").toInt().also {
                 require(it <= 98) { "rc99 collides with the final release's version code, from '$hawkeyeVersionName'" }
             }
-        else -> error("hawkeyeVersionName suffix '$suffix' is not rcN, dev, or ci, from '$hawkeyeVersionName'")
+        else -> error("hawkeyeVersionName suffix '$suffix' is not rc1..rc98, dev, or ci, from '$hawkeyeVersionName'")
     }
-    // 0.0.0-dev is only reachable via the dev fallback above, which needs a floor of 1.
+    // 0.0.0-dev (the local fallback above) and CI's 0.0.0-ci both compute to 0, so the
+    // floor of 1 covers them both.
     (major * 100_000_000 + minor * 100_000 + patch * 100 + rc).coerceAtLeast(1)
 }
 
 // Release signing activates only when the environment provides an upload keystore
 // (HAWKEYE_UPLOAD_KEYSTORE is a path to a decoded .jks). CI injects it from repository
 // secrets; local and PR builds have none and keep producing an unsigned release APK.
-val uploadKeystore = providers.environmentVariable("HAWKEYE_UPLOAD_KEYSTORE")
-val uploadKeystorePassword = providers.environmentVariable("HAWKEYE_UPLOAD_KEYSTORE_PASSWORD")
-val uploadKeyAlias = providers.environmentVariable("HAWKEYE_UPLOAD_KEY_ALIAS")
+// Blank counts as absent because a workflow env mapping of an unset secret yields an
+// empty string, and that case has to stay on the unsigned path.
+val uploadKeystorePath: String? = providers.environmentVariable("HAWKEYE_UPLOAD_KEYSTORE")
+    .orNull?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "com.px4.hawkeye.android"
@@ -81,29 +85,40 @@ android {
 
         externalNativeBuild {
             cmake {
-                // Changing this list means updating android/scripts/verify-release-apk.sh
-                // and the ABI list documented in docs/installation.md,
-                // docs/developer/releasing.md, docs/troubleshooting.md, and README.md.
+                // Changing this list means updating android/scripts/verify-release-apk.sh,
+                // android/scripts/verify-release-bundle.sh, and the ABI list documented
+                // in docs/installation.md, docs/developer/releasing.md,
+                // docs/troubleshooting.md, and README.md.
                 abiFilters += listOf("arm64-v8a", "x86_64")
             }
         }
     }
 
     signingConfigs {
-        if (uploadKeystore.isPresent) {
+        if (uploadKeystorePath != null) {
+            val password = providers.environmentVariable("HAWKEYE_UPLOAD_KEYSTORE_PASSWORD").orNull
+            val alias = providers.environmentVariable("HAWKEYE_UPLOAD_KEY_ALIAS").orNull
+            // Checked here rather than left to .get() so a half-configured environment
+            // fails at configuration time with the trio contract spelled out, not deep
+            // in :app:packageRelease. isNullOrEmpty, not isPresent: an env mapping of an
+            // unset secret arrives as an empty string.
+            require(!password.isNullOrEmpty() && !alias.isNullOrEmpty()) {
+                "HAWKEYE_UPLOAD_KEYSTORE is set, so HAWKEYE_UPLOAD_KEYSTORE_PASSWORD and " +
+                    "HAWKEYE_UPLOAD_KEY_ALIAS must be set too"
+            }
             create("upload") {
-                storeFile = file(uploadKeystore.get())
-                storePassword = uploadKeystorePassword.get()
-                keyAlias = uploadKeyAlias.get()
+                storeFile = file(uploadKeystorePath)
+                storePassword = password
+                keyAlias = alias
                 // The upload keystore is PKCS12, which has a single password.
-                keyPassword = uploadKeystorePassword.get()
+                keyPassword = password
             }
         }
     }
 
     buildTypes {
         release {
-            if (uploadKeystore.isPresent) {
+            if (uploadKeystorePath != null) {
                 signingConfig = signingConfigs.getByName("upload")
             }
             isMinifyEnabled = false

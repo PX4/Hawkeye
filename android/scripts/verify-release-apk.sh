@@ -56,7 +56,9 @@ if [ ! -f "$apk" ]; then
     exit 1
 fi
 
-listing=$(unzip -l "$apk")
+# -Z1 lists bare entry names only; a plain -l listing includes an "Archive: <path>"
+# header, which lets the APK's own on-disk path satisfy an entry check.
+listing=$(unzip -Z1 "$apk")
 for entry in \
     lib/arm64-v8a/libhawkeye.so \
     lib/x86_64/libhawkeye.so \
