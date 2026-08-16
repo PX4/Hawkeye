@@ -71,6 +71,12 @@ jobs:
     # release job runs.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # The secrets context is unavailable in every if condition, job-level and step-level
+    # alike, so presence is computed here as a boolean: the expression result is the
+    # string "true" or "false", which is all the later guards need, and no secret
+    # material lands in any step's environment.
+    env:
+      HAS_UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -81,14 +87,13 @@ jobs:
         with:
           cxx-cache-prefix: ndk-release
 
-      # The keystore secret is scoped to this one step (the secrets context is valid in a
-      # step-level if, just not a job-level one); later steps branch on the
+      # The keystore secret itself is scoped to this one step; later steps branch on the
       # HAWKEYE_UPLOAD_KEYSTORE path this step exports rather than re-reading the secret,
       # so no other step, including third-party actions, ever sees the keystore. Forks
       # have no secrets, skip this step, and build unsigned, exactly like a local
       # checkout.
       - name: Decode upload keystore
-        if: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
+        if: env.HAS_UPLOAD_KEYSTORE == 'true'
         env:
           UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
         run: |
