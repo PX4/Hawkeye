@@ -1435,68 +1435,104 @@ void vehicle_set_ghost_alpha(vehicle_t *v, float alpha) {
     v->ghost_alpha = alpha;
 }
 
+/* Lerped trail sample at time t; *walk is a monotonic cursor. */
+static Vector3 trail_sample_at_time(const vehicle_t *v, int start, float t, int *walk)
+{
+    int n = v->trail_count;
+    int i = *walk;
+    while (i + 2 < n && v->trail_time[(start + i + 1) % v->trail_capacity] < t) i++;
+    *walk = i;
+    int i0 = (start + i) % v->trail_capacity;
+    int i1 = (start + i + 1) % v->trail_capacity;
+    float t0 = v->trail_time[i0], t1 = v->trail_time[i1];
+    float f = (t1 > t0) ? (t - t0) / (t1 - t0) : 0.0f;
+    if (f < 0.0f) f = 0.0f;
+    if (f > 1.0f) f = 1.0f;
+    Vector3 p0 = v->trail[i0], p1 = v->trail[i1];
+    return (Vector3){ p0.x + (p1.x - p0.x) * f,
+                    p0.y + (p1.y - p0.y) * f,
+                    p0.z + (p1.z - p0.z) * f };
+}
+
+static void curtain_emit(const vehicle_t *va, const vehicle_t *vb,
+                         int start_a, int start_b,
+                         float t_lo, float t_hi, float span,
+                         float t_first, float dt, Vector3 cam_pos)
+{
+    Color ca = va->color;
+    Color cb = vb->color;
+    int walk_a = 0, walk_b = 0;
+    float last_f = 0.0f;
+    Vector3 pa0 = trail_sample_at_time(va, start_a, t_lo, &walk_a);
+    Vector3 pb0 = trail_sample_at_time(vb, start_b, t_lo, &walk_b);
+    float t = t_first;
+    rlBegin(RL_TRIANGLES);
+    while (1) {
+        float f = (t - t_lo) / span;
+        Vector3 pa1 = trail_sample_at_time(va, start_a, t, &walk_a);
+        Vector3 pb1 = trail_sample_at_time(vb, start_b, t, &walk_b);
+
+        // Alpha per column, not per quad, so the age fade is a ramp
+        unsigned char aa0 = (unsigned char)(last_f * 160 * va->ghost_alpha);
+        unsigned char ab0 = (unsigned char)(last_f * 160 * vb->ghost_alpha);
+        unsigned char aa1 = (unsigned char)(f * 160 * va->ghost_alpha);
+        unsigned char ab1 = (unsigned char)(f * 160 * vb->ghost_alpha);
+
+        rlColor4ub(ca.r, ca.g, ca.b, aa0);
+        rlVertex3f(pa0.x, pa0.y, pa0.z);
+        rlColor4ub(cb.r, cb.g, cb.b, ab0);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlColor4ub(ca.r, ca.g, ca.b, aa1);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+
+        rlColor4ub(cb.r, cb.g, cb.b, ab0);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlColor4ub(cb.r, cb.g, cb.b, ab1);
+        rlVertex3f(pb1.x, pb1.y, pb1.z);
+        rlColor4ub(ca.r, ca.g, ca.b, aa1);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+
+        pa0 = pa1; pb0 = pb1; last_f = f;
+
+        if (t >= t_hi) break;
+        int skip = trail_lod_skip(pa1, pb1, cam_pos);
+        t += dt * (float)(1 + skip);
+        if (t > t_hi) t = t_hi;
+    }
+    rlEnd();
+}
+
 void vehicle_draw_correlation_curtain(
     const vehicle_t *va, const vehicle_t *vb,
     const theme_t *theme, Vector3 cam_pos) {
     (void)theme;  // colors come from vehicle->color, theme kept for API consistency
     if (va->trail_count < 2 || vb->trail_count < 2) return;
 
-    int n = va->trail_count < vb->trail_count ? va->trail_count : vb->trail_count;
-    if (n < 2) return;
-
     int start_a = (va->trail_count < va->trail_capacity) ? 0 : va->trail_head;
     int start_b = (vb->trail_count < vb->trail_capacity) ? 0 : vb->trail_head;
 
-    Color ca = va->color;
-    Color cb = vb->color;
+    // Curtain columns span the time window both trails cover, so every
+    // column connects the two drones at the same instant.
+    float a_lo = va->trail_time[start_a];
+    float a_hi = va->trail_time[(start_a + va->trail_count - 1) % va->trail_capacity];
+    float b_lo = vb->trail_time[start_b];
+    float b_hi = vb->trail_time[(start_b + vb->trail_count - 1) % vb->trail_capacity];
+    float t_lo = (a_lo > b_lo) ? a_lo : b_lo;
+    float t_hi = (a_hi < b_hi) ? a_hi : b_hi;
+    float span = t_hi - t_lo;
+    if (span < 0.001f) return;
 
+    // Absolute time grid: existing columns never move as points arrive.
+    const float dt = 0.1f;
+    float t_first = ceilf(t_lo / dt) * dt;
+    if (t_first > t_hi) t_first = t_hi;
+
+    rlDrawRenderBatchActive();
+    rlDisableBackfaceCulling();   // one winding, visible from both sides
     rlDisableDepthMask();
-    rlBegin(RL_TRIANGLES);
-    for (int i = 1; i < n; i++) {
-        // Map index through fractional position for trail length alignment
-        int idx_a0 = (start_a + (int)((float)(i - 1) / n * va->trail_count)) % va->trail_capacity;
-        int idx_a1 = (start_a + (int)((float)i / n * va->trail_count)) % va->trail_capacity;
-        int idx_b0 = (start_b + (int)((float)(i - 1) / n * vb->trail_count)) % vb->trail_capacity;
-        int idx_b1 = (start_b + (int)((float)i / n * vb->trail_count)) % vb->trail_capacity;
-
-        Vector3 pa0 = va->trail[idx_a0];
-        Vector3 pa1 = va->trail[idx_a1];
-        Vector3 pb0 = vb->trail[idx_b0];
-        Vector3 pb1 = vb->trail[idx_b1];
-
-        float t = (float)i / (float)n;
-        unsigned char alpha_a = (unsigned char)(t * 255 * va->ghost_alpha);
-        unsigned char alpha_b = (unsigned char)(t * 255 * vb->ghost_alpha);
-
-        // Front face: pa0 → pb0 → pa1, then pb0 → pb1 → pa1
-        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
-        rlVertex3f(pa0.x, pa0.y, pa0.z);
-        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
-        rlVertex3f(pb0.x, pb0.y, pb0.z);
-        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
-        rlVertex3f(pa1.x, pa1.y, pa1.z);
-
-        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
-        rlVertex3f(pb0.x, pb0.y, pb0.z);
-        rlVertex3f(pb1.x, pb1.y, pb1.z);
-        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
-        rlVertex3f(pa1.x, pa1.y, pa1.z);
-
-        // Back face: pa1 → pb0 → pa0, then pa1 → pb1 → pb0
-        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
-        rlVertex3f(pa1.x, pa1.y, pa1.z);
-        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
-        rlVertex3f(pb0.x, pb0.y, pb0.z);
-        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
-        rlVertex3f(pa0.x, pa0.y, pa0.z);
-
-        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
-        rlVertex3f(pa1.x, pa1.y, pa1.z);
-        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
-        rlVertex3f(pb1.x, pb1.y, pb1.z);
-        rlVertex3f(pb0.x, pb0.y, pb0.z);
-    }
-    rlEnd();
+    curtain_emit(va, vb, start_a, start_b, t_lo, t_hi, span, t_first, dt, cam_pos);
+    rlDrawRenderBatchActive();
+    rlEnableBackfaceCulling();
     rlEnableDepthMask();
 }
 
