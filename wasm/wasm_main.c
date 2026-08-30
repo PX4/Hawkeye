@@ -1106,7 +1106,18 @@ static void frame(void *arg) {
                 }
             }
 
-            // 3D markers for all drones (main.c:1213)
+            // Batched trail pass (main.c:1213)
+            if (tm_3d > 0) {
+                vehicle_trails_begin(tm_3d, g.scene.theme);
+                for (int i = 0; i < g.vehicle_count; i++) {
+                    if (g.vehicles[i].active || g.vehicle_count == 1)
+                        vehicle_draw_trail(&g.vehicles[i], g.scene.theme, tm_3d,
+                                           g.scene.camera.position);
+                }
+                vehicle_trails_end();
+            }
+
+            // 3D markers for all drones (main.c:1224)
             for (int i = 0; i < g.vehicle_count; i++) {
                 if (g.log_loaded && g.markers[i].count > 0) {
                     int cur = (i == g.selected && !g.sys_markers[i].selected)

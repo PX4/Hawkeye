@@ -112,9 +112,6 @@ static void draw_trail_thick_line(const vehicle_t *v, const theme_t *theme,
 {
     int start = (v->trail_count < v->trail_capacity) ? 0 : v->trail_head;
 
-    rlDrawRenderBatchActive();
-    rlDisableBackfaceCulling();
-    rlDisableDepthMask();
     rlBegin(RL_TRIANGLES);
 
     Vector3 perp = {0};
@@ -222,8 +219,36 @@ static void draw_trail_thick_line(const vehicle_t *v, const theme_t *theme,
         }
     }
     rlEnd();
+}
 
+/* Shared GPU state for the per-vehicle trail pass: one flush and one shader
+ * bind for the whole fleet instead of per drone. */
+void vehicle_trails_begin(int trail_mode, const theme_t *theme)
+{
     rlDrawRenderBatchActive();
+    rlDisableBackfaceCulling();
+    rlDisableDepthMask();
+    if (trail_mode == 2) {
+        Shader *rs = ribbon_shader_get();
+        if (rs) {
+            static int loc_thermal = -1;
+            if (loc_thermal < 0) loc_thermal = GetShaderLocation(*rs, "thermal");
+            float ramp[21];
+            for (int k = 0; k < 7; k++) {
+                ramp[k*3 + 0] = theme->thermal[k].r / 255.0f;
+                ramp[k*3 + 1] = theme->thermal[k].g / 255.0f;
+                ramp[k*3 + 2] = theme->thermal[k].b / 255.0f;
+            }
+            SetShaderValueV(*rs, loc_thermal, ramp, SHADER_UNIFORM_VEC3, 7);
+            rlSetShader(rs->id, rs->locs);
+        }
+    }
+}
+
+void vehicle_trails_end(void)
+{
+    rlDrawRenderBatchActive();
+    rlSetShader(rlGetShaderIdDefault(), rlGetShaderLocsDefault());
     rlEnableBackfaceCulling();
     rlEnableDepthMask();
 }
@@ -944,183 +969,6 @@ void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
     }
     if (v->ghost_alpha < 1.0f) rlEnableDepthMask();
 
-    // Draw path trail (mode 1), speed ribbon (mode 2), or drone color (mode 3)
-    if (trail_mode > 0 && v->trail_count > 1) {
-        int start = (v->trail_count < v->trail_capacity)
-            ? 0
-            : v->trail_head;
-
-      if (trail_mode == 1) {
-        // ── Normal directional trail (constant-width line) ──
-        draw_trail_thick_line(v, theme, cam_pos, 1);
-      } else if (trail_mode == 3) {
-        // ── Drone-color trail: solid vehicle color with age fade ──
-        draw_trail_thick_line(v, theme, cam_pos, 3);
-      } else {
-        // ── Speed ribbon trail (mode 2) ──
-        // LOD decimates points but keeps the survivors connected.
-        float max_speed = v->trail_speed_max > 1.0f ? v->trail_speed_max : 1.0f;
-        float max_half_w = v->model_scale * 0.25f;
-        float min_half_w = 0.02f;
-
-        rlDrawRenderBatchActive();
-        rlDisableBackfaceCulling();   // one winding, visible from both sides
-        rlDisableDepthMask();         // translucent: test depth, don't write it
-        Shader *rs = ribbon_shader_get();
-        if (rs) {
-            static int loc_thermal = -1;
-            if (loc_thermal < 0) loc_thermal = GetShaderLocation(*rs, "thermal");
-            float ramp[21];
-            for (int k = 0; k < 7; k++) {
-                ramp[k*3 + 0] = theme->thermal[k].r / 255.0f;
-                ramp[k*3 + 1] = theme->thermal[k].g / 255.0f;
-                ramp[k*3 + 2] = theme->thermal[k].b / 255.0f;
-            }
-            SetShaderValueV(*rs, loc_thermal, ramp, SHADER_UNIFORM_VEC3, 7);
-            rlSetShader(rs->id, rs->locs);
-        }
-
-        rlBegin(RL_TRIANGLES);
-        Vector3 perp = {0};
-        Vector3 last_p = {0}, last_l = {0}, last_r = {0};
-        Color last_c = {0};
-        float last_spd = 0.0f, last_time = 0.0f, last_hw = 0.0f, last_heat = 0.0f;
-        bool have_point = false;   // a previous accepted point exists
-        bool have_xsec = false;    // ...and its cross-section has been placed
-
-        int i = 0;
-        while (i < v->trail_count) {
-            int idx = (start + i) % v->trail_capacity;
-            Vector3 p = v->trail[idx];
-            float spd = v->trail_speed[idx];
-            float ptime = v->trail_time[idx];
-
-            if (have_point) {
-                Vector3 seg = { p.x - last_p.x, p.y - last_p.y, p.z - last_p.z };
-                float seg_len = sqrtf(seg.x*seg.x + seg.y*seg.y + seg.z*seg.z);
-                if (seg_len < 0.001f) { i++; continue; }  // duplicate sample
-                Vector3 dir = { seg.x/seg_len, seg.y/seg_len, seg.z/seg_len };
-
-                Vector3 lat = Vector3CrossProduct(dir, (Vector3){0, 1, 0});
-                float ll = Vector3Length(lat);
-                if (ll > 0.05f) {
-                    // ribbon lies across the wings, banked by recorded roll
-                    lat = Vector3Scale(lat, 1.0f/ll);
-                    Vector3 vup = Vector3CrossProduct(lat, dir);
-                    float rr = v->trail_roll[idx] * DEG2RAD;
-                    Vector3 np = { lat.x*cosf(rr) + vup.x*sinf(rr),
-                                   lat.y*cosf(rr) + vup.y*sinf(rr),
-                                   lat.z*cosf(rr) + vup.z*sinf(rr) };
-                    if ((np.x*perp.x + np.y*perp.y + np.z*perp.z) < 0.0f)
-                        np = Vector3Scale(np, -1.0f);
-                    perp = np;
-                } else {
-                    // near-vertical flight: carry the previous frame
-                    float d = perp.x*dir.x + perp.y*dir.y + perp.z*dir.z;
-                    perp.x -= dir.x * d; perp.y -= dir.y * d; perp.z -= dir.z * d;
-                    float plen = sqrtf(perp.x*perp.x + perp.y*perp.y + perp.z*perp.z);
-                    if (plen < 0.001f) {
-                        perp = Vector3CrossProduct(dir, (Vector3){0, 0, 1});
-                        plen = Vector3Length(perp);
-                        if (plen < 0.001f) { i++; continue; }
-                    }
-                    perp.x /= plen; perp.y /= plen; perp.z /= plen;
-                }
-            }
-
-            // Width and color belong to the point, not the segment
-            float sn = spd / max_speed;
-            if (sn > 1.0f) sn = 1.0f;
-            float hw = min_half_w + powf(sn, 2.0f) * max_half_w;
-
-            float dt = ptime - last_time;
-            float accel = (have_point && dt > 0.0001f) ? (spd - last_spd) / dt : 0.0f;
-            float accel_shift = accel / 40.0f;
-            if (accel_shift > 0.15f) accel_shift = 0.15f;
-            if (accel_shift < -0.15f) accel_shift = -0.15f;
-            float heat = sn + accel_shift;
-            if (heat > 1.0f) heat = 1.0f;
-            if (heat < 0.0f) heat = 0.0f;
-
-            float age = (float)i / (float)v->trail_count;
-            Color c = theme_heat_color(theme, heat, (unsigned char)(age * 200));
-            c.a = (unsigned char)(c.a * v->ghost_alpha);
-
-            if (have_point) {
-                if (!have_xsec) {
-                    // first point's cross-section
-                    last_l = (Vector3){ last_p.x + perp.x*last_hw,
-                                      last_p.y + perp.y*last_hw,
-                                      last_p.z + perp.z*last_hw };
-                    last_r = (Vector3){ last_p.x - perp.x*last_hw,
-                                      last_p.y - perp.y*last_hw,
-                                      last_p.z - perp.z*last_hw };
-                    have_xsec = true;
-                }
-                Vector3 l = { p.x + perp.x*hw, p.y + perp.y*hw, p.z + perp.z*hw };
-                Vector3 r = { p.x - perp.x*hw, p.y - perp.y*hw, p.z - perp.z*hw };
-
-                // texcoord.x = heat, for ribbon.fs
-                rlColor4ub(last_c.r, last_c.g, last_c.b, last_c.a);
-                rlTexCoord2f(last_heat, 0.0f);
-                rlVertex3f(last_l.x, last_l.y, last_l.z);
-                rlVertex3f(last_r.x, last_r.y, last_r.z);
-                rlColor4ub(c.r, c.g, c.b, c.a);
-                rlTexCoord2f(heat, 0.0f);
-                rlVertex3f(l.x, l.y, l.z);
-
-                rlColor4ub(last_c.r, last_c.g, last_c.b, last_c.a);
-                rlTexCoord2f(last_heat, 0.0f);
-                rlVertex3f(last_r.x, last_r.y, last_r.z);
-                rlColor4ub(c.r, c.g, c.b, c.a);
-                rlTexCoord2f(heat, 0.0f);
-                rlVertex3f(r.x, r.y, r.z);
-                rlVertex3f(l.x, l.y, l.z);
-
-                last_l = l; last_r = r;
-            }
-
-            last_p = p; last_c = c; last_spd = spd;
-            last_time = ptime; last_hw = hw; last_heat = heat;
-            have_point = true;
-
-            int skip = trail_lod_skip(p, p, cam_pos);
-            int next = i + 1 + skip;
-            if (next > v->trail_count - 1 && i < v->trail_count - 1)
-                next = v->trail_count - 1;
-            i = next;
-        }
-
-        if (have_xsec) {
-            Vector3 seg = { v->position.x - last_p.x, v->position.y - last_p.y,
-                            v->position.z - last_p.z };
-            float seg_len = sqrtf(seg.x*seg.x + seg.y*seg.y + seg.z*seg.z);
-            if (seg_len > 0.001f && seg_len < 2.0f) {
-                Vector3 l = { v->position.x + perp.x*last_hw,
-                              v->position.y + perp.y*last_hw,
-                              v->position.z + perp.z*last_hw };
-                Vector3 r = { v->position.x - perp.x*last_hw,
-                              v->position.y - perp.y*last_hw,
-                              v->position.z - perp.z*last_hw };
-                rlColor4ub(last_c.r, last_c.g, last_c.b, last_c.a);
-                rlTexCoord2f(last_heat, 0.0f);
-                rlVertex3f(last_l.x, last_l.y, last_l.z);
-                rlVertex3f(last_r.x, last_r.y, last_r.z);
-                rlVertex3f(l.x, l.y, l.z);
-                rlVertex3f(last_r.x, last_r.y, last_r.z);
-                rlVertex3f(r.x, r.y, r.z);
-                rlVertex3f(l.x, l.y, l.z);
-            }
-        }
-        rlEnd();
-
-        rlDrawRenderBatchActive();
-        if (rs) rlSetShader(rlGetShaderIdDefault(), rlGetShaderLocsDefault());
-        rlEnableBackfaceCulling();
-        rlEnableDepthMask();
-      }
-    }
-
     // Ground projection (shadow / ring) at Y=0
     if (show_ground_track && v->position.y > 0.1f) {
 
@@ -1500,6 +1348,167 @@ static void curtain_emit(const vehicle_t *va, const vehicle_t *vb,
         if (t > t_hi) t = t_hi;
     }
     rlEnd();
+}
+
+
+/* Trail pass: emit-only, called between vehicle_trails_begin/end. */
+void vehicle_draw_trail(vehicle_t *v, const theme_t *theme, int trail_mode,
+                        Vector3 cam_pos)
+{
+    // Draw path trail (mode 1), speed ribbon (mode 2), or drone color (mode 3)
+    if (trail_mode > 0 && v->trail_count > 1) {
+        int start = (v->trail_count < v->trail_capacity)
+            ? 0
+            : v->trail_head;
+
+      if (trail_mode == 1) {
+        // ── Normal directional trail (constant-width line) ──
+        draw_trail_thick_line(v, theme, cam_pos, 1);
+      } else if (trail_mode == 3) {
+        // ── Drone-color trail: solid vehicle color with age fade ──
+        draw_trail_thick_line(v, theme, cam_pos, 3);
+      } else {
+        // ── Speed ribbon trail (mode 2) ──
+        // LOD decimates points but keeps the survivors connected.
+        float max_speed = v->trail_speed_max > 1.0f ? v->trail_speed_max : 1.0f;
+        float max_half_w = v->model_scale * 0.25f;
+        float min_half_w = 0.02f;
+
+        rlBegin(RL_TRIANGLES);
+        Vector3 perp = {0};
+        Vector3 last_p = {0}, last_l = {0}, last_r = {0};
+        Color last_c = {0};
+        float last_spd = 0.0f, last_time = 0.0f, last_hw = 0.0f, last_heat = 0.0f;
+        bool have_point = false;   // a previous accepted point exists
+        bool have_xsec = false;    // ...and its cross-section has been placed
+
+        int i = 0;
+        while (i < v->trail_count) {
+            int idx = (start + i) % v->trail_capacity;
+            Vector3 p = v->trail[idx];
+            float spd = v->trail_speed[idx];
+            float ptime = v->trail_time[idx];
+
+            if (have_point) {
+                Vector3 seg = { p.x - last_p.x, p.y - last_p.y, p.z - last_p.z };
+                float seg_len = sqrtf(seg.x*seg.x + seg.y*seg.y + seg.z*seg.z);
+                if (seg_len < 0.001f) { i++; continue; }  // duplicate sample
+                Vector3 dir = { seg.x/seg_len, seg.y/seg_len, seg.z/seg_len };
+
+                Vector3 lat = Vector3CrossProduct(dir, (Vector3){0, 1, 0});
+                float ll = Vector3Length(lat);
+                if (ll > 0.05f) {
+                    // ribbon lies across the wings, banked by recorded roll
+                    lat = Vector3Scale(lat, 1.0f/ll);
+                    Vector3 vup = Vector3CrossProduct(lat, dir);
+                    float rr = v->trail_roll[idx] * DEG2RAD;
+                    Vector3 np = { lat.x*cosf(rr) + vup.x*sinf(rr),
+                                   lat.y*cosf(rr) + vup.y*sinf(rr),
+                                   lat.z*cosf(rr) + vup.z*sinf(rr) };
+                    if ((np.x*perp.x + np.y*perp.y + np.z*perp.z) < 0.0f)
+                        np = Vector3Scale(np, -1.0f);
+                    perp = np;
+                } else {
+                    // near-vertical flight: carry the previous frame
+                    float d = perp.x*dir.x + perp.y*dir.y + perp.z*dir.z;
+                    perp.x -= dir.x * d; perp.y -= dir.y * d; perp.z -= dir.z * d;
+                    float plen = sqrtf(perp.x*perp.x + perp.y*perp.y + perp.z*perp.z);
+                    if (plen < 0.001f) {
+                        perp = Vector3CrossProduct(dir, (Vector3){0, 0, 1});
+                        plen = Vector3Length(perp);
+                        if (plen < 0.001f) { i++; continue; }
+                    }
+                    perp.x /= plen; perp.y /= plen; perp.z /= plen;
+                }
+            }
+
+            // Width and color belong to the point, not the segment
+            float sn = spd / max_speed;
+            if (sn > 1.0f) sn = 1.0f;
+            float hw = min_half_w + powf(sn, 2.0f) * max_half_w;
+
+            float dt = ptime - last_time;
+            float accel = (have_point && dt > 0.0001f) ? (spd - last_spd) / dt : 0.0f;
+            float accel_shift = accel / 40.0f;
+            if (accel_shift > 0.15f) accel_shift = 0.15f;
+            if (accel_shift < -0.15f) accel_shift = -0.15f;
+            float heat = sn + accel_shift;
+            if (heat > 1.0f) heat = 1.0f;
+            if (heat < 0.0f) heat = 0.0f;
+
+            float age = (float)i / (float)v->trail_count;
+            Color c = theme_heat_color(theme, heat, (unsigned char)(age * 200));
+            c.a = (unsigned char)(c.a * v->ghost_alpha);
+
+            if (have_point) {
+                if (!have_xsec) {
+                    // first point's cross-section
+                    last_l = (Vector3){ last_p.x + perp.x*last_hw,
+                                      last_p.y + perp.y*last_hw,
+                                      last_p.z + perp.z*last_hw };
+                    last_r = (Vector3){ last_p.x - perp.x*last_hw,
+                                      last_p.y - perp.y*last_hw,
+                                      last_p.z - perp.z*last_hw };
+                    have_xsec = true;
+                }
+                Vector3 l = { p.x + perp.x*hw, p.y + perp.y*hw, p.z + perp.z*hw };
+                Vector3 r = { p.x - perp.x*hw, p.y - perp.y*hw, p.z - perp.z*hw };
+
+                // texcoord.x = heat, for ribbon.fs
+                rlColor4ub(last_c.r, last_c.g, last_c.b, last_c.a);
+                rlTexCoord2f(last_heat, 0.0f);
+                rlVertex3f(last_l.x, last_l.y, last_l.z);
+                rlVertex3f(last_r.x, last_r.y, last_r.z);
+                rlColor4ub(c.r, c.g, c.b, c.a);
+                rlTexCoord2f(heat, 0.0f);
+                rlVertex3f(l.x, l.y, l.z);
+
+                rlColor4ub(last_c.r, last_c.g, last_c.b, last_c.a);
+                rlTexCoord2f(last_heat, 0.0f);
+                rlVertex3f(last_r.x, last_r.y, last_r.z);
+                rlColor4ub(c.r, c.g, c.b, c.a);
+                rlTexCoord2f(heat, 0.0f);
+                rlVertex3f(r.x, r.y, r.z);
+                rlVertex3f(l.x, l.y, l.z);
+
+                last_l = l; last_r = r;
+            }
+
+            last_p = p; last_c = c; last_spd = spd;
+            last_time = ptime; last_hw = hw; last_heat = heat;
+            have_point = true;
+
+            int skip = trail_lod_skip(p, p, cam_pos);
+            int next = i + 1 + skip;
+            if (next > v->trail_count - 1 && i < v->trail_count - 1)
+                next = v->trail_count - 1;
+            i = next;
+        }
+
+        if (have_xsec) {
+            Vector3 seg = { v->position.x - last_p.x, v->position.y - last_p.y,
+                            v->position.z - last_p.z };
+            float seg_len = sqrtf(seg.x*seg.x + seg.y*seg.y + seg.z*seg.z);
+            if (seg_len > 0.001f && seg_len < 2.0f) {
+                Vector3 l = { v->position.x + perp.x*last_hw,
+                              v->position.y + perp.y*last_hw,
+                              v->position.z + perp.z*last_hw };
+                Vector3 r = { v->position.x - perp.x*last_hw,
+                              v->position.y - perp.y*last_hw,
+                              v->position.z - perp.z*last_hw };
+                rlColor4ub(last_c.r, last_c.g, last_c.b, last_c.a);
+                rlTexCoord2f(last_heat, 0.0f);
+                rlVertex3f(last_l.x, last_l.y, last_l.z);
+                rlVertex3f(last_r.x, last_r.y, last_r.z);
+                rlVertex3f(l.x, l.y, l.z);
+                rlVertex3f(last_r.x, last_r.y, last_r.z);
+                rlVertex3f(r.x, r.y, r.z);
+                rlVertex3f(l.x, l.y, l.z);
+            }
+        }
+        rlEnd();
+      }
+    }
 }
 
 void vehicle_draw_correlation_curtain(

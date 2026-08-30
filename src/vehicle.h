@@ -145,6 +145,12 @@ void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
                   int trail_mode, bool show_ground_track, Vector3 cam_pos,
                   bool classic_colors);
 
+// Trail pass: emit-only; bracket a loop of these with begin/end.
+void vehicle_trails_begin(int trail_mode, const theme_t *theme);
+void vehicle_draw_trail(vehicle_t *v, const theme_t *theme, int trail_mode,
+                        Vector3 cam_pos);
+void vehicle_trails_end(void);
+
 // Reset the path trail.
 void vehicle_reset_trail(vehicle_t *v);
 

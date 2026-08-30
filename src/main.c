@@ -1210,6 +1210,15 @@ int main(int argc, char *argv[]) {
                                      classic_colors);
                     }
                 }
+                if (tm_3d > 0) {
+                    vehicle_trails_begin(tm_3d, scene.theme);
+                    for (int i = 0; i < vehicle_count; i++) {
+                        if (vehicles[i].active || vehicle_count == 1)
+                            vehicle_draw_trail(&vehicles[i], scene.theme, tm_3d,
+                                               scene.camera.position);
+                    }
+                    vehicle_trails_end();
+                }
                 // Draw frame marker spheres and system marker cubes for all drones
                 for (int i = 0; i < vehicle_count; i++) {
                     if (is_replay && markers[i].count > 0) {
