@@ -83,7 +83,7 @@ A fork without those secrets falls back to the pre-signing behavior: the artifac
 Because the APK cannot be launched on a CI runner without an emulator, `android/scripts/verify-release-apk.sh` asserts on its contents instead:
 
 - Both `lib/arm64-v8a/libhawkeye.so` and `lib/x86_64/libhawkeye.so` are present.
-- All four asset trees are packaged: `assets/models/`, `assets/shaders/`, `assets/fonts/`, and `assets/themes/`.
+- All four asset trees are packaged: `assets/models/`, `assets/shaders/`, `assets/fonts/`, and `assets/themes/`, along with `assets/NOTICE.md`, which the in-app About screen renders.
   These are symlinks into the repository root, so the check catches a runner that failed to materialize them.
 - The `versionName` AGP recorded matches the tag, and the `versionCode` is one Android will accept.
 - With `--signed`, which the job passes whenever the keystore secrets are present, `apksigner verify` confirms the signature.
@@ -101,6 +101,19 @@ The AAB is not attached to the GitHub release.
 Google Play is its only destination, and Play App Signing re-signs it with the app signing key Google holds, so a Play install and a sideloaded APK carry different signatures and cannot upgrade over each other.
 
 Anyone who sideloaded a self-signed APK from a release cut before signing landed (v0.3.0 and earlier) has to uninstall it once before an official signed build will install; release notes should carry that reminder until it stops being relevant.
+
+### Store listing wording
+
+No Play listing text lives in this repository; the workflow uploads the AAB and nothing else, so the listing is maintained by hand in the Play Console.
+Because the project is open source and anyone may publish a fork, the listing has to make it obvious which app this is.
+Whoever edits it should keep three things in the description:
+
+- That this is the official Hawkeye app, published by the Dronecode Foundation.
+- A link to <https://github.com/PX4/Hawkeye>.
+- That Hawkeye is a visualization and analysis tool rather than a flight-safety device.
+
+Forks are asked to change their app name, icon, and `applicationId` before publishing, and to carry a non-affiliation notice; the policy they are pointed at is [FORKS.md](https://github.com/PX4/Hawkeye/blob/main/FORKS.md) in the repository root.
+If a listing turns up that misrepresents itself as this app, report it through Google Play's [impersonation report](https://support.google.com/googleplay/android-developer/answer/16341334).
 
 ## Checking a release build before tagging
 

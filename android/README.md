@@ -11,19 +11,25 @@ android/
 ├── build-logic/                  — Gradle convention plugins (hawkeye.android.*, hawkeye.jvm.library)
 ├── core/
 │   ├── domain/                   — pure Kotlin: Result, Error, DataError
-│   ├── presentation/             — Compose helpers: UiText, ObserveAsEvents
-│   └── design-system/            — HawkeyeTheme (Compose Material 3)
+│   ├── presentation/             — Compose helpers: UiText, ObserveAsEvents, app-provided seams
+│   ├── design-system/            — HawkeyeTheme (Compose Material 3)
+│   └── navigation/               — NavKey destinations, TopLevelDestination, NavBackStacks
+├── feature/home/                 — hero screen: mode cards + recent flights
 ├── feature/replay/               — .ulg ingestion + confirm flow
 │   ├── domain/                   — UlogInboxDataSource interface, UlogFile, ReplayError
 │   ├── data/                     — AndroidUlogInboxDataSource (does the file copy + sentinel write)
 │   └── presentation/             — ReplayViewModel, State/Action/Event, ReplayRoot + dialogs
+├── feature/live/                 — live MAVLink session setup
+├── feature/settings/             — theme, units, listen port
+├── feature/about/                — version, official-build info, bundled license notices
 └── app/src/main/
     ├── AndroidManifest.xml       — declares HawkeyeActivity, requires OpenGL ES 3.0
     ├── assets/                   — all symlinks into the parent Hawkeye project
-    │   ├── fonts  -> ../../../../fonts
-    │   ├── models -> ../../../../models
-    │   ├── shaders -> ../../../../shaders
-    │   └── themes -> ../../../../themes
+    │   ├── fonts  -> ../../../../../fonts
+    │   ├── models -> ../../../../../models
+    │   ├── shaders -> ../../../../../shaders
+    │   ├── themes -> ../../../../../themes
+    │   └── NOTICE.md -> ../../../../../NOTICE.md
     ├── java/com/px4/hawkeye/android/
     │   ├── HawkeyeActivity.kt    — NativeActivity host; owner plumbing + Compose overlay
     │   └── HawkeyeApp.kt         — Application class, startKoin
@@ -212,7 +218,7 @@ Open the `android/` directory in Android Studio. Gradle will sync automatically 
 
 ### Note on symlinks
 
-The `assets/` directory uses symlinks into the parent repo (fonts, models, shaders, themes). These work on macOS and Linux out of the box. On Windows, either enable [Developer Mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development) before cloning or use WSL.
+The `assets/` directory uses symlinks into the parent repo (fonts, models, shaders, themes, and `NOTICE.md`). These work on macOS and Linux out of the box. On Windows, either enable [Developer Mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development) before cloning or use WSL.
 
 ## Requirements
 
@@ -249,7 +255,7 @@ Raylib 5.5 is fetched automatically by CMake on the first build. Built ABIs: `ar
 
 The output is `app/build/outputs/apk/release/app-release-unsigned.apk`, unless the upload keystore environment variables are set (see [Release signing](#release-signing)), in which case it is a signed `app-release.apk`. An unsigned APK cannot be installed until you sign it yourself (see below).
 
-To run the same checks CI runs against a release APK (both ABIs present, all four asset trees packaged, version as expected):
+To run the same checks CI runs against a release APK (both ABIs present, all four asset trees and `NOTICE.md` packaged, version as expected):
 
 ```bash
 scripts/verify-release-apk.sh app/build/outputs/apk/release 0.4.0

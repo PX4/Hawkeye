@@ -114,6 +114,7 @@ if(NOT BUILD_TESTING_ONLY)
     install(DIRECTORY themes/ DESTINATION ${CMAKE_INSTALL_DATADIR}/hawkeye/themes
             FILES_MATCHING PATTERN "*.mvt")
     install(FILES fonts/OFL.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/hawkeye/fonts)
+    install(FILES LICENSE NOTICE.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
     # CPack packaging
     set(CPACK_PACKAGE_NAME "hawkeye")

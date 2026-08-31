@@ -43,6 +43,14 @@ Releases also go to the Google Play internal test track; ask a maintainer to add
 
 See [Building from source](https://px4.github.io/Hawkeye/developer/build) in the developer docs.
 
+### Official builds
+
+Official Hawkeye builds come from the [GitHub releases](https://github.com/PX4/Hawkeye/releases) on this repository, the `PX4/px4` Homebrew tap, and Google Play under the Dronecode Foundation account. Android releases are signed with keys held by the Dronecode Foundation.
+
+Builds from anywhere else are unofficial and unsupported by this project. Hawkeye is a visualization tool, not a flight-safety device, and is provided without warranty of any kind.
+
+Anyone may fork and republish Hawkeye under the terms of the license; see [FORKS.md](FORKS.md) for what to rename first.
+
 ## Quickstart
 
 Launch with PX4 SITL (single vehicle):
@@ -69,4 +77,6 @@ This project was inspired by [jMAVSim](https://github.com/PX4/jMAVSim), the Java
 
 ## License
 
-BSD-3-Clause
+[BSD-3-Clause](LICENSE). Third-party components and their licenses are listed in [NOTICE.md](NOTICE.md).
+
+The license covers the code. It does not cover the Hawkeye, PX4, or Dronecode names and logos, so forks published as apps need their own name and icon; see [FORKS.md](FORKS.md).

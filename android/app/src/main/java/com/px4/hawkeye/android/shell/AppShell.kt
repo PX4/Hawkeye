@@ -30,17 +30,21 @@ import androidx.navigation3.ui.NavDisplay
 import com.px4.hawkeye.android.R
 import com.px4.hawkeye.core.designsystem.ScrimColor
 import com.px4.hawkeye.core.designsystem.glassSurface
+import com.px4.hawkeye.core.navigation.AboutKey
 import com.px4.hawkeye.core.navigation.EntryProviderInstaller
 import com.px4.hawkeye.core.navigation.HomeKey
 import com.px4.hawkeye.core.navigation.LiveKey
 import com.px4.hawkeye.core.navigation.ReplayKey
+import com.px4.hawkeye.core.navigation.SettingsKey
 import com.px4.hawkeye.core.navigation.TopLevelDestination
+import com.px4.hawkeye.feature.about.presentation.AboutRoot
 import com.px4.hawkeye.feature.home.presentation.HomeRoot
 import com.px4.hawkeye.feature.home.presentation.HomeVideoBackground
 import com.px4.hawkeye.feature.live.presentation.LiveSetupRoot
 import com.px4.hawkeye.feature.replay.presentation.ReplayLibraryRoot
 import com.px4.hawkeye.feature.settings.domain.AppSettings
 import com.px4.hawkeye.feature.settings.domain.SettingsRepository
+import com.px4.hawkeye.feature.settings.presentation.SettingsRoot
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.getKoin
 import org.koin.compose.koinInject
@@ -111,11 +115,18 @@ fun AppShell(viewModel: ShellViewModel = koinViewModel()) {
                             onConnectLive = { backStacks.push(LiveKey) },
                         )
                     }
-                    // Replay and Live are pushed (non-tab) destinations, so their top bars get a
-                    // back button wired to the shell back stack — registered here in :app for
-                    // access to it. (Top-level tabs Home/Settings need no back button.)
+                    // Replay, Live, and About are pushed (non-tab) destinations, so their top
+                    // bars get a back button wired to the shell back stack — registered here in
+                    // :app for access to it. Settings is a tab and needs no back button, but it
+                    // pushes About, so it is registered here too.
                     addEntryProvider(ReplayKey::class, { it.toString() }) {
                         ReplayLibraryRoot(onBack = { backStacks.pop() })
+                    }
+                    addEntryProvider(SettingsKey::class, { it.toString() }) {
+                        SettingsRoot(onNavigateToAbout = { backStacks.push(AboutKey) })
+                    }
+                    addEntryProvider(AboutKey::class, { it.toString() }) {
+                        AboutRoot(onBack = { backStacks.pop() })
                     }
                     addEntryProvider(LiveKey::class, { it.toString() }) {
                         val settings by koinInject<SettingsRepository>()

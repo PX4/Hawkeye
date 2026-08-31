@@ -3,6 +3,7 @@ package com.px4.hawkeye.android
 import android.app.Application
 import com.px4.hawkeye.android.di.appModule
 import com.px4.hawkeye.core.navigation.di.navigationModule
+import com.px4.hawkeye.feature.about.presentation.di.aboutPresentationModule
 import com.px4.hawkeye.feature.home.presentation.di.homePresentationModule
 import com.px4.hawkeye.feature.live.data.di.liveDataModule
 import com.px4.hawkeye.feature.live.presentation.di.livePresentationModule
@@ -28,6 +29,7 @@ class HawkeyeApp : Application() {
                 homePresentationModule,
                 settingsDataModule,
                 settingsPresentationModule,
+                aboutPresentationModule,
                 replayDataModule,
                 replayPresentationModule,
                 liveDataModule,

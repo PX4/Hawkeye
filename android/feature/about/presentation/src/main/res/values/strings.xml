@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_title">About</string>
+    <string name="about_back">Back</string>
+    <string name="about_app_name">Hawkeye</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_version_unknown">Version unavailable</string>
+
+    <string name="about_official_header">Official builds</string>
+    <string name="about_official_body">Official Hawkeye builds are published by the Dronecode Foundation, on Google Play and at github.com/PX4/Hawkeye, and are signed with keys the foundation holds. Builds obtained anywhere else are unofficial and are not supported by the Hawkeye project.</string>
+
+    <string name="about_disclaimer_header">Disclaimer</string>
+    <string name="about_disclaimer_body">Hawkeye is a visualization and analysis tool. It is not a flight-safety device and is not certified for operational use. Do not make flight decisions based on what it displays. The software is provided \"AS IS\", without warranty of any kind.</string>
+
+    <string name="about_licenses_header">Open-source licenses</string>
+    <string name="about_licenses_summary">Hawkeye is licensed under BSD-3-Clause and includes the third-party components listed here.</string>
+    <string name="about_licenses_show">Show</string>
+    <string name="about_licenses_hide">Hide</string>
+    <string name="about_licenses_unavailable">The license notices could not be loaded. They are published at github.com/PX4/Hawkeye.</string>
+</resources>

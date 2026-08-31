@@ -13,3 +13,4 @@ enum class TopLevelDestination(val key: NavKey) {
 @Serializable data object ReplayKey : NavKey
 @Serializable data object LiveKey : NavKey
 @Serializable data object SettingsKey : NavKey
+@Serializable data object AboutKey : NavKey

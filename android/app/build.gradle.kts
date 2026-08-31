@@ -106,6 +106,7 @@ dependencies {
     implementation(project(":feature:settings:domain"))
     implementation(project(":feature:settings:data"))
     implementation(project(":feature:settings:presentation"))
+    implementation(project(":feature:about:presentation"))
     implementation(project(":feature:live:domain"))
     implementation(project(":feature:live:data"))
     implementation(project(":feature:live:presentation"))

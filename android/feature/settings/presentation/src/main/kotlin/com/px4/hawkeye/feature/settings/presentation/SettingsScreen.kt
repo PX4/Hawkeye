@@ -1,6 +1,7 @@
 package com.px4.hawkeye.feature.settings.presentation
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,15 +32,23 @@ import com.px4.hawkeye.feature.settings.domain.ThemeMode
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
-fun SettingsRoot(viewModel: SettingsViewModel = koinViewModel()) {
+fun SettingsRoot(
+    onNavigateToAbout: () -> Unit,
+    viewModel: SettingsViewModel = koinViewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    SettingsScreen(state = state, onAction = viewModel::onAction)
+    SettingsScreen(
+        state = state,
+        onAction = viewModel::onAction,
+        onNavigateToAbout = onNavigateToAbout,
+    )
 }
 
 @Composable
 fun SettingsScreen(
     state: SettingsState,
     onAction: (SettingsAction) -> Unit,
+    onNavigateToAbout: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -95,6 +104,25 @@ fun SettingsScreen(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth(),
         )
+
+        Text(
+            text = stringResource(R.string.settings_about_header),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(
+                top = HawkeyeDimens.itemSpacing,
+                bottom = HawkeyeDimens.titleSpacing,
+            ),
+        )
+        Text(
+            text = stringResource(R.string.settings_about_label),
+            // itemSpacing rather than rowVerticalPadding: this row is a bare Text, so the
+            // padding is what carries it to the 48dp minimum touch target that the Material
+            // radio rows above get from RadioButton.
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClick = onNavigateToAbout)
+                .padding(vertical = HawkeyeDimens.itemSpacing),
+        )
     }
 }
 
@@ -146,6 +174,7 @@ private fun SettingsScreenPreview() {
         SettingsScreen(
             state = SettingsState(themeMode = ThemeMode.DARK, distanceUnit = DistanceUnit.IMPERIAL),
             onAction = {},
+            onNavigateToAbout = {},
         )
     }
 }

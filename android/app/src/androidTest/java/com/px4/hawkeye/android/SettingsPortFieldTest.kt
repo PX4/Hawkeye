@@ -26,6 +26,7 @@ class SettingsPortFieldTest {
                         portError = UiText.DynamicString("Enter a port between 1024 and 65535."),
                     ),
                     onAction = {},
+                    onNavigateToAbout = {},
                 )
             }
         }
@@ -39,6 +40,7 @@ class SettingsPortFieldTest {
                 SettingsScreen(
                     state = SettingsState(portInput = "19410", portError = null),
                     onAction = {},
+                    onNavigateToAbout = {},
                 )
             }
         }

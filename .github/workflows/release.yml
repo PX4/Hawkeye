@@ -289,6 +289,7 @@ jobs:
           Copy-Item -Recurse "build\Release\textures" $stage
           Copy-Item -Recurse "build\Release\themes"   $stage
           Copy-Item "LICENSE"   $stage
+          Copy-Item "NOTICE.md" $stage
           Copy-Item "README.md" $stage
           Compress-Archive -Path $stage -DestinationPath "$stage.zip"
 

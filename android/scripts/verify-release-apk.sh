@@ -2,10 +2,10 @@
 #
 # Verifies a release APK without needing a device or an emulator.
 #
-# Checks that both ABIs are present, that all four asset trees made it into the package
-# (they are symlinks into the repo root, so this catches a checkout that failed to
-# materialize them), and that the version the build produced is the one it was told to
-# produce.
+# Checks that both ABIs are present, that all four asset trees and the notice file made
+# it into the package (they are symlinks into the repo root, so this catches a checkout
+# that failed to materialize them), and that the version the build produced is the one it
+# was told to produce.
 #
 # Resolves the APK from AGP's output-metadata.json rather than globbing the output
 # directory, so it stays correct if a second variant or an ABI split is ever added.
@@ -65,7 +65,8 @@ for entry in \
     assets/models/ \
     assets/shaders/ \
     assets/fonts/ \
-    assets/themes/ ; do
+    assets/themes/ \
+    assets/NOTICE.md ; do
     # Herestring rather than a pipe: grep -q exits on the first match, and under
     # pipefail a writer killed by the resulting SIGPIPE would fail the pipeline and
     # report a present entry as missing once the listing outgrows the pipe buffer.

@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -62,6 +63,32 @@ class ShellNavigationTest {
     }
 
     @Test
+    fun about_isReachableFromSettings_andSurvivesRotation() {
+        composeRule.onNodeWithText(NAV_SETTINGS).performClick()
+        // The row is the last thing on Settings and sits below the fold in landscape, and
+        // performClick does not scroll: without this the tap lands off-screen and no
+        // navigation happens.
+        composeRule.onNodeWithText(SETTINGS_ABOUT_ROW).performScrollTo().performClick()
+        composeRule.onNodeWithText(ABOUT_OFFICIAL_HEADER).assertIsDisplayed()
+        rotate()
+        composeRule.onNodeWithText(ABOUT_OFFICIAL_HEADER).assertIsDisplayed()
+    }
+
+    /**
+     * End-to-end check on the packaged notices: the text only reaches the screen if the
+     * assets/NOTICE.md symlink materialized, AGP packaged it, and AndroidAboutInfoProvider
+     * read it off the asset manager. A unit test with a fake provider cannot catch a break
+     * anywhere in that chain.
+     */
+    @Test
+    fun about_showsBundledLicenseNotices_whenExpanded() {
+        composeRule.onNodeWithText(NAV_SETTINGS).performClick()
+        composeRule.onNodeWithText(SETTINGS_ABOUT_ROW).performScrollTo().performClick()
+        composeRule.onNodeWithText(LICENSES_SHOW).performScrollTo().performClick()
+        composeRule.onNodeWithText(RAYLIB_COPYRIGHT, substring = true).assertExists()
+    }
+
+    @Test
     fun selectedDestination_isPreservedAcrossRotation() {
         composeRule.onNodeWithText(NAV_SETTINGS).performClick()
         composeRule.onNodeWithText(SETTINGS_THEME_HEADER).assertIsDisplayed()
@@ -80,5 +107,14 @@ class ShellNavigationTest {
         const val NAV_SETTINGS = "Settings"
         const val SETTINGS_THEME_HEADER = "Theme"
         const val LIVE_START_BUTTON = "Start live session"
+
+        // The Settings row label and the About section header, not the word "About" itself:
+        // that string is on both screens and would match ambiguously.
+        const val SETTINGS_ABOUT_ROW = "Version, official builds, and licenses"
+        const val ABOUT_OFFICIAL_HEADER = "Official builds"
+        const val LICENSES_SHOW = "Show"
+
+        // From the packaged NOTICE.md, so matching it proves the asset was read at runtime.
+        const val RAYLIB_COPYRIGHT = "Ramon Santamaria"
     }
 }

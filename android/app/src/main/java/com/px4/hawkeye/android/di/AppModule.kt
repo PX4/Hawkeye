@@ -1,8 +1,10 @@
 package com.px4.hawkeye.android.di
 
+import com.px4.hawkeye.android.about.AndroidAboutInfoProvider
 import com.px4.hawkeye.android.live.AndroidLivePlaybackLauncher
 import com.px4.hawkeye.android.replay.AndroidReplayPlaybackLauncher
 import com.px4.hawkeye.android.shell.ShellViewModel
+import com.px4.hawkeye.core.presentation.AboutInfoProvider
 import com.px4.hawkeye.core.presentation.LivePlaybackLauncher
 import com.px4.hawkeye.core.presentation.ReplayPlaybackLauncher
 import org.koin.core.module.dsl.viewModelOf
@@ -13,4 +15,5 @@ val appModule = module {
     viewModelOf(::ShellViewModel)
     single<ReplayPlaybackLauncher> { AndroidReplayPlaybackLauncher() }
     single<LivePlaybackLauncher> { AndroidLivePlaybackLauncher(get()) }
+    single<AboutInfoProvider> { AndroidAboutInfoProvider(get()) }
 }

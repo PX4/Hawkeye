@@ -2,10 +2,10 @@
 #
 # Verifies a release AAB without needing bundletool or a device.
 #
-# Checks that both ABIs and all four asset trees made it into the bundle (the assets
-# are symlinks into the repo root, so this catches a checkout that failed to
-# materialize them). Version checks live in verify-release-apk.sh, which reads them
-# from the same Gradle invocation that produced this bundle.
+# Checks that both ABIs, all four asset trees, and the notice file made it into the
+# bundle (the assets are symlinks into the repo root, so this catches a checkout that
+# failed to materialize them). Version checks live in verify-release-apk.sh, which reads
+# them from the same Gradle invocation that produced this bundle.
 #
 # With --signed, additionally requires a verifiable jar signature. Bundles are jar-signed
 # with the upload key, and Google Play rejects an AAB whose signature does not match the
@@ -48,7 +48,8 @@ for entry in \
     base/assets/models/ \
     base/assets/shaders/ \
     base/assets/fonts/ \
-    base/assets/themes/ ; do
+    base/assets/themes/ \
+    base/assets/NOTICE.md ; do
     # Herestring rather than a pipe, for the same pipefail reason as in
     # verify-release-apk.sh.
     if ! grep -qF "$entry" <<<"$listing"; then
@@ -77,5 +78,5 @@ if [ "$signed" -eq 1 ]; then
     fi
 fi
 
-echo "${aab}: both ABIs and all four asset trees present" >&2
+echo "${aab}: both ABIs, all four asset trees, and the notice file present" >&2
 echo "$aab"
