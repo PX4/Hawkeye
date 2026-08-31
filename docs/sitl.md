@@ -49,7 +49,7 @@ Hawkeye binds to UDP port 19410 by default.
 PX4 SIH sends `HIL_STATE_QUATERNION` messages to the same port
 The vehicle appears immediately in the Hawkeye window at the origin.
 
-<iframe width="720" height="405" src="https://www.youtube.com/embed/WudOSKFC0pc" frameborder="0" allowfullscreen></iframe>
+<iframe width="720" height="405" src="https://www.youtube-nocookie.com/embed/WudOSKFC0pc" frameborder="0" allowfullscreen></iframe>
 
 _<!-- 08-vid-01: Single vehicle SITL quickstart. -->_
 

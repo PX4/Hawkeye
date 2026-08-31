@@ -24,7 +24,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -93,11 +95,32 @@ fun AboutScreen(
                 header = stringResource(R.string.about_disclaimer_header),
                 body = stringResource(R.string.about_disclaimer_body),
             )
+            PrivacySection()
 
             HorizontalDivider(modifier = Modifier.padding(top = HawkeyeDimens.sectionSpacing))
             LicensesSection(state = state, onAction = onAction)
         }
     }
+}
+
+@Composable
+private fun PrivacySection() {
+    val uriHandler = LocalUriHandler.current
+    val url = stringResource(R.string.about_privacy_url)
+
+    Section(
+        header = stringResource(R.string.about_privacy_header),
+        body = stringResource(R.string.about_privacy_body),
+    )
+    Text(
+        text = stringResource(R.string.about_privacy_link),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button) { uriHandler.openUri(url) }
+            .padding(vertical = HawkeyeDimens.itemSpacing),
+    )
 }
 
 @Composable

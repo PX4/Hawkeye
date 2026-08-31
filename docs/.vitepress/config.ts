@@ -77,6 +77,7 @@ export default defineConfig({
           { text: 'Releasing', link: '/developer/releasing' },
         ],
       },
+      { text: 'Privacy Policy', link: '/privacy' },
     ],
 
     socialLinks: [
@@ -84,7 +85,7 @@ export default defineConfig({
     ],
 
     footer: {
-      message: 'Released under the BSD-3-Clause License.',
+      message: 'Released under the BSD-3-Clause License. <a href="/Hawkeye/privacy">Privacy Policy</a>.',
       copyright: 'Copyright © PX4 / Dronecode Foundation',
     },
 

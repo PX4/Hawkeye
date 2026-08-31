@@ -12,6 +12,11 @@
     <string name="about_disclaimer_header">Disclaimer</string>
     <string name="about_disclaimer_body">Hawkeye is a visualization and analysis tool. It is not a flight-safety device and is not certified for operational use. Do not make flight decisions based on what it displays. The software is provided \"AS IS\", without warranty of any kind.</string>
 
+    <string name="about_privacy_header">Privacy</string>
+    <string name="about_privacy_body">Hawkeye collects no personal data. Your flight logs and settings stay on this device, and backup to cloud storage is disabled.</string>
+    <string name="about_privacy_link">Read the privacy policy</string>
+    <string name="about_privacy_url" translatable="false">https://px4.github.io/Hawkeye/privacy</string>
+
     <string name="about_licenses_header">Open-source licenses</string>
     <string name="about_licenses_summary">Hawkeye is licensed under BSD-3-Clause and includes the third-party components listed here.</string>
     <string name="about_licenses_show">Show</string>

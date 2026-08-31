@@ -115,6 +115,22 @@ Whoever edits it should keep three things in the description:
 Forks are asked to change their app name, icon, and `applicationId` before publishing, and to carry a non-affiliation notice; the policy they are pointed at is [FORKS.md](https://github.com/PX4/Hawkeye/blob/main/FORKS.md) in the repository root.
 If a listing turns up that misrepresents itself as this app, report it through Google Play's [impersonation report](https://support.google.com/googleplay/android-developer/answer/16341334).
 
+### Privacy policy and Data safety
+
+Google Play requires both a privacy policy URL and a completed Data safety form for every app, including apps that collect nothing, and both must be in place before the app is promoted beyond the internal test track.
+Neither can be scripted; they are filled in by hand in the Play Console.
+
+- The privacy policy URL is <https://px4.github.io/Hawkeye/privacy>, published from [`docs/privacy.md`](../privacy.md).
+- The Data safety form should declare **no data collected and no data shared**.
+
+That declaration holds because of what the app actually does, and it is worth knowing why rather than taking it on faith.
+Google defines collection as transmitting data off the device, and explicitly exempts data that is only processed locally.
+Hawkeye's flight logs, log library, and settings never leave the device: there is no Hawkeye server, no analytics, and no crash reporting, and Android backup is disabled so the platform does not copy them either.
+Live telemetry travels only between the app and the vehicle or simulator the user connected to.
+
+The form and the policy have to agree, since a mismatch is a common cause of listing rejection.
+Anything that changes the answer, in particular adding an analytics, crash-reporting, or advertising dependency, or re-enabling `android:allowBackup`, means updating `docs/privacy.md` and the Data safety form together.
+
 ## Checking a release build before tagging
 
 `.github/workflows/android.yml` has a `release-build` job that runs the same `assembleRelease` and `bundleRelease` tasks and the same verification scripts the release uses, including the signed path when the keystore secrets are present.

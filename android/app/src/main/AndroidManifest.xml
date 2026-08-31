@@ -5,9 +5,17 @@
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+        Backup is off on purpose. Imported ULog files live in filesDir/library and carry
+        the flight's GPS track, so with Auto Backup enabled a user's flight paths would be
+        copied to their Google Drive. allowBackup="false" stops cloud backup; it does not
+        reliably stop device-to-device transfer on Android 12+, so data_extraction_rules.xml
+        excludes everything from that path too. Re-enabling either means updating
+        docs/privacy.md and the Play Data safety declaration to match.
+    -->
     <application
         android:name=".HawkeyeApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
