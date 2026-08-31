@@ -61,6 +61,8 @@ If you find an app passing itself off as official Hawkeye:
 - Report it to Google Play through their [impersonation report form](https://support.google.com/googleplay/android-developer/answer/16341334).
 - Open an issue on [PX4/Hawkeye](https://github.com/PX4/Hawkeye/issues) so maintainers know about it.
 
+To report a security vulnerability, see [SECURITY.md](SECURITY.md) instead.
+
 ## Questions
 
 If you are unsure whether your planned use of the name is okay, open an issue and ask. Questions asked in good faith are welcome, and it is easier to sort out before you ship than after.

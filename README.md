@@ -75,6 +75,10 @@ See the [full documentation](https://px4.github.io/Hawkeye/) for CLI options, mu
 
 This project was inspired by [jMAVSim](https://github.com/PX4/jMAVSim), the Java-based MAVLink simulator and viewer. Vehicle 3D models are derived from jMAVSim's assets.
 
+## Security
+
+To report a security vulnerability, see [SECURITY.md](SECURITY.md). Do not report it in a public issue.
+
 ## License
 
 [BSD-3-Clause](LICENSE). Third-party components and their licenses are listed in [NOTICE.md](NOTICE.md).
