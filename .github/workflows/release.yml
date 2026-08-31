@@ -24,7 +24,17 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # gh release create infers nothing from the tag name, so without this an rc tag
+          # publishes as a full release and GitHub serves it as Latest to everyone. Any
+          # suffix after the patch version marks a prerelease; a bare MAJOR.MINOR.PATCH is
+          # the only final form.
+          case "$VERSION" in
+            *-*) echo "prerelease=true"  >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Create source tarball
         id: tarball
@@ -45,7 +55,8 @@ jobs:
         run: |
           gh release create ${{ github.ref_name }} \
             --title "${{ github.ref_name }}" \
-            --generate-notes
+            --generate-notes \
+            --prerelease=${{ steps.version.outputs.prerelease }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -21,6 +21,10 @@ git push origin v0.4.0
 The workflow creates the GitHub release immediately, then each platform job uploads its artifact as it finishes.
 The release is published rather than drafted, because the macOS bottle build needs the source tarball URL to be publicly fetchable.
 
+A tag carrying a suffix, such as `v0.4.0-rc2`, is published as a prerelease; a bare `vMAJOR.MINOR.PATCH` tag is published as a full release.
+`gh release create` does not infer this from the tag, so the workflow derives it from the version string and passes `--prerelease` explicitly.
+This is what keeps an rc off the repository's "Latest release" slot, which is where the README download links and anyone landing on the releases page are pointed.
+
 ## Release artifacts
 
 A tag produces six assets:
