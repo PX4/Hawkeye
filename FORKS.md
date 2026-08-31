@@ -36,7 +36,7 @@ Describing accurately where your work came from is normal, expected, and encoura
 
 - "based on Hawkeye", "a fork of Hawkeye", "compatible with Hawkeye"
 - Linking back to this repository
-- Keeping our copyright notices in the source, as the license requires
+- Keeping [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md) intact, as the license requires
 - Private builds, internal builds, and research builds you do not publish under a confusable identity
 
 The line is between describing a relationship and claiming an identity. The first is fine; the second is what we are asking you to avoid.

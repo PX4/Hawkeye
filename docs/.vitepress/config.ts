@@ -86,7 +86,7 @@ export default defineConfig({
 
     footer: {
       message: 'Released under the BSD-3-Clause License. <a href="/Hawkeye/privacy">Privacy Policy</a>.',
-      copyright: 'Copyright © PX4 / Dronecode Foundation',
+      copyright: 'Copyright © 2026 PX4 Development Team',
     },
 
     search: {
