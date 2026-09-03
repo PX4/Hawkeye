@@ -418,13 +418,6 @@ static void tac_draw_radar(const hud_t *h, const vehicle_t *vehicles,
             if (!v->active && vehicle_count > 1) continue;
             int start = (v->trail_count < v->trail_capacity) ? 0 : v->trail_head;
 
-            Color col_fwd  = theme->trail_forward;
-            Color col_back = theme->trail_backward;
-            Color col_up   = theme->trail_climb;
-            Color col_down = theme->trail_descend;
-            Color col_rp   = theme->trail_roll_pos;
-            Color col_rn   = theme->trail_roll_neg;
-
             for (int ti = 1; ti < v->trail_count; ti++) {
                 int i0 = (start + ti - 1) % v->trail_capacity;
                 int i1 = (start + ti) % v->trail_capacity;
@@ -434,28 +427,12 @@ static void tac_draw_radar(const hud_t *h, const vehicle_t *vehicles,
                 unsigned char ca;
 
                 if (trail_mode == 1) {
-                    cr_f = (float)col_fwd.r; cg_f = (float)col_fwd.g; cb_f = (float)col_fwd.b;
-                    float pitch = v->trail_pitch[i1];
-                    float vert  = v->trail_vert[i1];
-                    float roll  = v->trail_roll[i1];
-
-                    float bt = pitch / 15.0f;
-                    if (bt < 0) bt = 0; if (bt > 1) bt = 1;
-                    cr_f += (col_back.r - cr_f) * bt;
-                    cg_f += (col_back.g - cg_f) * bt;
-                    cb_f += (col_back.b - cb_f) * bt;
-
-                    float vt = vert / 5.0f;
-                    if (vt > 1) vt = 1; if (vt < -1) vt = -1;
-                    if (vt > 0) { cr_f += (col_up.r - cr_f)*vt; cg_f += (col_up.g - cg_f)*vt; cb_f += (col_up.b - cb_f)*vt; }
-                    else if (vt < 0) { float d=-vt; cr_f += (col_down.r - cr_f)*d; cg_f += (col_down.g - cg_f)*d; cb_f += (col_down.b - cb_f)*d; }
-
-                    float rt = roll / 15.0f;
-                    if (rt > 1) rt = 1; if (rt < -1) rt = -1;
-                    if (rt > 0) { cr_f += (col_rp.r - cr_f)*rt*0.7f; cg_f += (col_rp.g - cg_f)*rt*0.7f; cb_f += (col_rp.b - cb_f)*rt*0.7f; }
-                    else if (rt < 0) { float d=-rt; cr_f += (col_rn.r - cr_f)*d*0.7f; cg_f += (col_rn.g - cg_f)*d*0.7f; cb_f += (col_rn.b - cb_f)*d*0.7f; }
-
-                    ca = (unsigned char)(t * col_fwd.a);
+                    Color dc = vehicle_marker_color(v->trail_roll[i1], v->trail_fwd[i1],
+                                                    v->trail_vert[i1], v->trail_turn[i1],
+                                                    v->trail_speed[i1], v->trail_speed_max,
+                                                    theme, 1, v->color);
+                    cr_f = dc.r; cg_f = dc.g; cb_f = dc.b;
+                    ca = (unsigned char)(t * theme->trail_forward.a);
                 } else if (trail_mode == 2) {
                     float max_spd = v->trail_speed_max > 1.0f ? v->trail_speed_max : 1.0f;
                     float spd = v->trail_speed[i1];

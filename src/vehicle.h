@@ -87,6 +87,10 @@ typedef struct {
     float pitch_deg;         // pitch in degrees
     float ground_speed;      // m/s
     float vertical_speed;    // m/s (positive = climbing)
+    float forward_speed;     // m/s along heading (negative = flying backward)
+    float yaw_rate_deg;      // deg/s, positive = turning right
+    float yaw_rate_time;     // current_time at the last yaw-rate update
+    bool  heading_valid;     // heading_deg is from a continuous stream, not a jump
     float airspeed;          // m/s
     float altitude_rel;      // meters above origin
     int red_material_idx;    // material index for port arms (-1 if not found)
@@ -100,8 +104,9 @@ typedef struct {
     Color color;
     Vector3 *trail;
     float *trail_roll;           // roll angle at each trail sample
-    float *trail_pitch;          // pitch angle at each trail sample
+    float *trail_fwd;            // forward speed at each trail sample
     float *trail_vert;           // vertical speed at each trail sample
+    float *trail_turn;           // yaw rate at each trail sample
     float *trail_speed;          // 3D speed (m/s) at each trail sample
     float *trail_time;           // replay timestamp (seconds) at each trail sample
     float trail_speed_max;       // max speed seen so far (for adaptive ribbon)
@@ -161,21 +166,21 @@ void vehicle_truncate_trail(vehicle_t *v, float time_s);
 // Call inside BeginMode3D. drone_color used when trail_mode == 3 (ID trails).
 void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
                           int current_marker, Vector3 cam_pos, Camera3D camera,
-                          float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                          float speed_max, const theme_t *theme, int trail_mode,
-                          marker_type_t type, Color drone_color);
+                          float *m_roll, float *m_fwd, float *m_vert, float *m_turn,
+                          float *m_speed, float speed_max, const theme_t *theme,
+                          int trail_mode, marker_type_t type, Color drone_color);
 
 // Draw billboarded marker labels (call AFTER EndMode3D, in 2D pass).
 void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count,
                                 int current_marker, Vector3 cam_pos, Camera3D camera,
                                 Font font_label, Font font_value,
-                                float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                                float speed_max, const theme_t *theme, int trail_mode,
-                                marker_type_t type, Color drone_color);
+                                float *m_roll, float *m_fwd, float *m_vert, float *m_turn,
+                                float *m_speed, float speed_max, const theme_t *theme,
+                                int trail_mode, marker_type_t type, Color drone_color);
 
-// Compute marker color from snapshotted telemetry.
+// Trail/marker color from snapshotted telemetry, alpha 255.
 // drone_color used when trail_mode == 3 (ID trails).
-Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
+Color vehicle_marker_color(float roll, float fwd, float vert, float turn, float speed,
                            float speed_max, const theme_t *theme, int trail_mode,
                            Color drone_color);
 

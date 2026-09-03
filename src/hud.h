@@ -21,8 +21,9 @@ typedef struct {
     const float *times;
     const char (*labels)[HUD_MARKER_LABEL_MAX];
     const float *roll;
-    const float *pitch;
+    const float *fwd;
     const float *vert;
+    const float *turn;
     const float *speed;
     float speed_max;
     int count;

@@ -16,8 +16,9 @@ typedef struct {
     Vector3 positions[REPLAY_MAX_MARKERS];
     char labels[REPLAY_MAX_MARKERS][HUD_MARKER_LABEL_MAX];
     float roll[REPLAY_MAX_MARKERS];
-    float pitch[REPLAY_MAX_MARKERS];
+    float fwd[REPLAY_MAX_MARKERS];
     float vert[REPLAY_MAX_MARKERS];
+    float turn[REPLAY_MAX_MARKERS];
     float speed[REPLAY_MAX_MARKERS];
     float speed_max;
     int count;

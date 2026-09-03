@@ -86,69 +86,20 @@ static void draw_trail_2d_impl(const vehicle_t *v, const theme_t *theme,
 
     if (trail_mode == 1) {
         // ── Normal directional trail ──
-        Color trail_color = theme->trail_forward;
-        Color col_back     = theme->trail_backward;
-        Color col_up       = theme->trail_climb;
-        Color col_down     = theme->trail_descend;
-        Color col_roll_pos = theme->trail_roll_pos;
-        Color col_roll_neg = theme->trail_roll_neg;
-
         for (int i = 1; i < v->trail_count; i++) {
             int idx0 = (start + i - 1) % v->trail_capacity;
             int idx1 = (start + i) % v->trail_capacity;
             float t = (float)i / (float)v->trail_count;
 
-            float pitch = v->trail_pitch[idx1];
-            float vert  = v->trail_vert[idx1];
-            float roll  = v->trail_roll[idx1];
-
-            float cr = (float)trail_color.r;
-            float cg = (float)trail_color.g;
-            float cb = (float)trail_color.b;
-
-            float back_t = pitch / 15.0f;
-            if (back_t < 0.0f) back_t = 0.0f;
-            if (back_t > 1.0f) back_t = 1.0f;
-            cr += (col_back.r - cr) * back_t;
-            cg += (col_back.g - cg) * back_t;
-            cb += (col_back.b - cb) * back_t;
-
-            float vert_t = vert / 5.0f;
-            if (vert_t > 1.0f) vert_t = 1.0f;
-            if (vert_t < -1.0f) vert_t = -1.0f;
-            if (vert_t > 0.0f) {
-                cr += (col_up.r - cr) * vert_t;
-                cg += (col_up.g - cg) * vert_t;
-                cb += (col_up.b - cb) * vert_t;
-            } else if (vert_t < 0.0f) {
-                float dt2 = -vert_t;
-                cr += (col_down.r - cr) * dt2;
-                cg += (col_down.g - cg) * dt2;
-                cb += (col_down.b - cb) * dt2;
-            }
-
-            float roll_t = roll / 15.0f;
-            if (roll_t > 1.0f) roll_t = 1.0f;
-            if (roll_t < -1.0f) roll_t = -1.0f;
-            if (roll_t > 0.0f) {
-                cr += (col_roll_pos.r - cr) * roll_t * 0.7f;
-                cg += (col_roll_pos.g - cg) * roll_t * 0.7f;
-                cb += (col_roll_pos.b - cb) * roll_t * 0.7f;
-            } else if (roll_t < 0.0f) {
-                float rt = -roll_t;
-                cr += (col_roll_neg.r - cr) * rt * 0.7f;
-                cg += (col_roll_neg.g - cg) * rt * 0.7f;
-                cb += (col_roll_neg.b - cb) * rt * 0.7f;
-            }
-
-            unsigned char ccr = (unsigned char)(cr > 255 ? 255 : cr);
-            unsigned char ccg = (unsigned char)(cg > 255 ? 255 : cg);
-            unsigned char ccb = (unsigned char)(cb > 255 ? 255 : cb);
-            unsigned char ca  = (unsigned char)(t * trail_color.a * v->ghost_alpha);
+            Color c = vehicle_marker_color(v->trail_roll[idx1], v->trail_fwd[idx1],
+                                           v->trail_vert[idx1], v->trail_turn[idx1],
+                                           v->trail_speed[idx1], v->trail_speed_max,
+                                           theme, 1, v->color);
+            c.a = (unsigned char)(t * theme->trail_forward.a * v->ghost_alpha);
 
             Vector2 s0 = project(v->trail[idx0], ctx);
             Vector2 s1 = project(v->trail[idx1], ctx);
-            DrawLineEx(s0, s1, 1.0f, (Color){ ccr, ccg, ccb, ca });
+            DrawLineEx(s0, s1, 1.0f, c);
         }
     } else if (trail_mode == 3) {
         // ── Drone-color trail ──

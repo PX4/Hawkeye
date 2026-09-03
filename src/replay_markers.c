@@ -16,16 +16,18 @@ int marker_drop(user_markers_t *um, float time, Vector3 pos,
         um->positions[m] = um->positions[m - 1];
         memcpy(um->labels[m], um->labels[m - 1], HUD_MARKER_LABEL_MAX);
         um->roll[m] = um->roll[m - 1];
-        um->pitch[m] = um->pitch[m - 1];
+        um->fwd[m] = um->fwd[m - 1];
         um->vert[m] = um->vert[m - 1];
+        um->turn[m] = um->turn[m - 1];
         um->speed[m] = um->speed[m - 1];
     }
     um->times[insert] = time;
     um->positions[insert] = pos;
     um->labels[insert][0] = '\0';
     um->roll[insert] = v->roll_deg;
-    um->pitch[insert] = v->pitch_deg;
+    um->fwd[insert] = v->forward_speed;
     um->vert[insert] = v->vertical_speed;
+    um->turn[insert] = v->yaw_rate_deg;
     um->speed[insert] = sqrtf(v->ground_speed * v->ground_speed +
                                v->vertical_speed * v->vertical_speed);
     um->count++;
@@ -44,8 +46,9 @@ void marker_delete(user_markers_t *um) {
         um->positions[m] = um->positions[m + 1];
         memcpy(um->labels[m], um->labels[m + 1], HUD_MARKER_LABEL_MAX);
         um->roll[m] = um->roll[m + 1];
-        um->pitch[m] = um->pitch[m + 1];
+        um->fwd[m] = um->fwd[m + 1];
         um->vert[m] = um->vert[m + 1];
+        um->turn[m] = um->turn[m + 1];
         um->speed[m] = um->speed[m + 1];
     }
     um->count--;
@@ -175,8 +178,9 @@ void marker_cycle(user_markers_t *um, sys_markers_t *sm,
                     int si = src_start + ti;
                     vehicle->trail[ti] = precomp->trail[si];
                     vehicle->trail_roll[ti] = precomp->roll[si];
-                    vehicle->trail_pitch[ti] = precomp->pitch[si];
+                    vehicle->trail_fwd[ti] = precomp->fwd[si];
                     vehicle->trail_vert[ti] = precomp->vert[si];
+                    vehicle->trail_turn[ti] = precomp->turn[si];
                     vehicle->trail_speed[ti] = precomp->speed[si];
                     vehicle->trail_time[ti] = precomp->time[si];
                     if (precomp->speed[si] > vehicle->trail_speed_max)
@@ -317,8 +321,9 @@ marker_cycle_result_t marker_cycle_global(
                 int si = src_start + ti;
                 vehicles[d].trail[ti] = precomps[d].trail[si];
                 vehicles[d].trail_roll[ti] = precomps[d].roll[si];
-                vehicles[d].trail_pitch[ti] = precomps[d].pitch[si];
+                vehicles[d].trail_fwd[ti] = precomps[d].fwd[si];
                 vehicles[d].trail_vert[ti] = precomps[d].vert[si];
+                vehicles[d].trail_turn[ti] = precomps[d].turn[si];
                 vehicles[d].trail_speed[ti] = precomps[d].speed[si];
                 vehicles[d].trail_time[ti] = precomps[d].time[si];
                 if (precomps[d].speed[si] > vehicles[d].trail_speed_max)

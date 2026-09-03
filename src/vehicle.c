@@ -53,56 +53,11 @@ static Shader *ribbon_shader_get(void)
 /* Directional trail color for one sample. */
 static Color trail_dir_color(const vehicle_t *v, int idx, float age, const theme_t *theme)
 {
-    Color trail_color = theme->trail_forward;
-    float pitch = v->trail_pitch[idx];
-    float vert  = v->trail_vert[idx];
-    float roll  = v->trail_roll[idx];
-
-    float cr = (float)trail_color.r;
-    float cg = (float)trail_color.g;
-    float cb = (float)trail_color.b;
-
-    float back_t = pitch / 15.0f;
-    if (back_t < 0.0f) back_t = 0.0f;
-    if (back_t > 1.0f) back_t = 1.0f;
-    cr += (theme->trail_backward.r - cr) * back_t;
-    cg += (theme->trail_backward.g - cg) * back_t;
-    cb += (theme->trail_backward.b - cb) * back_t;
-
-    float vert_t = vert / 5.0f;
-    if (vert_t > 1.0f) vert_t = 1.0f;
-    if (vert_t < -1.0f) vert_t = -1.0f;
-    if (vert_t > 0.0f) {
-        cr += (theme->trail_climb.r - cr) * vert_t;
-        cg += (theme->trail_climb.g - cg) * vert_t;
-        cb += (theme->trail_climb.b - cb) * vert_t;
-    } else if (vert_t < 0.0f) {
-        float dt2 = -vert_t;
-        cr += (theme->trail_descend.r - cr) * dt2;
-        cg += (theme->trail_descend.g - cg) * dt2;
-        cb += (theme->trail_descend.b - cb) * dt2;
-    }
-
-    float roll_t = roll / 15.0f;
-    if (roll_t > 1.0f) roll_t = 1.0f;
-    if (roll_t < -1.0f) roll_t = -1.0f;
-    if (roll_t > 0.0f) {
-        cr += (theme->trail_roll_pos.r - cr) * roll_t * 0.7f;
-        cg += (theme->trail_roll_pos.g - cg) * roll_t * 0.7f;
-        cb += (theme->trail_roll_pos.b - cb) * roll_t * 0.7f;
-    } else if (roll_t < 0.0f) {
-        float rt = -roll_t;
-        cr += (theme->trail_roll_neg.r - cr) * rt * 0.7f;
-        cg += (theme->trail_roll_neg.g - cg) * rt * 0.7f;
-        cb += (theme->trail_roll_neg.b - cb) * rt * 0.7f;
-    }
-
-    return (Color){
-        (unsigned char)(cr > 255 ? 255 : cr),
-        (unsigned char)(cg > 255 ? 255 : cg),
-        (unsigned char)(cb > 255 ? 255 : cb),
-        (unsigned char)(age * trail_color.a * v->ghost_alpha)
-    };
+    Color c = vehicle_marker_color(v->trail_roll[idx], v->trail_fwd[idx], v->trail_vert[idx],
+                                   v->trail_turn[idx], v->trail_speed[idx], v->trail_speed_max,
+                                   theme, 1, v->color);
+    c.a = (unsigned char)(age * theme->trail_forward.a * v->ghost_alpha);
+    return c;
 }
 
 /* Trail lines (modes 1 and 3), drawn as camera-facing strips — GL lines
@@ -706,8 +661,9 @@ static void vehicle_init_common(vehicle_t *v, int model_idx, Shader lighting_sha
     v->color = WHITE;
     v->trail = (Vector3 *)calloc(capacity, sizeof(Vector3));
     v->trail_roll = (float *)calloc(capacity, sizeof(float));
-    v->trail_pitch = (float *)calloc(capacity, sizeof(float));
+    v->trail_fwd = (float *)calloc(capacity, sizeof(float));
     v->trail_vert = (float *)calloc(capacity, sizeof(float));
+    v->trail_turn = (float *)calloc(capacity, sizeof(float));
     v->trail_speed = (float *)calloc(capacity, sizeof(float));
     v->trail_time = (float *)calloc(capacity, sizeof(float));
     v->trail_capacity = capacity;
@@ -739,7 +695,7 @@ void vehicle_init_ex(vehicle_t *v, int model_idx, Shader lighting_shader, int tr
 }
 
 void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_t *home) {
-    if (!state->valid) return;
+    if (!state->valid) { v->heading_valid = false; return; }
 
     double lat = state->lat * 1e-7 * (M_PI / 180.0);
     double lon = state->lon * 1e-7 * (M_PI / 180.0);
@@ -802,6 +758,7 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     float nw = qw, nx = qx, ny = qy, nz = qz;
     if (nw < 0.0f) { nw = -nw; nx = -nx; ny = -ny; nz = -nz; }
 
+    float prev_heading = v->heading_deg;
     float heading_rad = atan2f(2.0f * (nw * nz + nx * ny),
                                1.0f - 2.0f * (ny * ny + nz * nz));
     v->heading_deg = heading_rad * RAD2DEG;
@@ -818,6 +775,27 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     v->ground_speed = sqrtf((float)state->vx * state->vx +
                             (float)state->vy * state->vy) * 0.01f;
     v->vertical_speed = -state->vz * 0.01f;
+    v->forward_speed = ((float)state->vx * cosf(heading_rad) +
+                        (float)state->vy * sinf(heading_rad)) * 0.01f;
+
+    // Yaw rate from heading delta over replay time (frame time when live), low-passed.
+    // A gap over a second is a seek, not motion.
+    float dh = v->heading_deg - prev_heading;
+    if (dh > 180.0f) dh -= 360.0f;
+    if (dh < -180.0f) dh += 360.0f;
+    bool has_clock = (v->current_time != 0.0f || v->yaw_rate_time != 0.0f);
+    float dt = has_clock ? v->current_time - v->yaw_rate_time : GetFrameTime();
+    v->yaw_rate_time = v->current_time;
+    if (has_clock && dt == 0.0f) {
+        // replay paused, hold the last rate
+    } else if (!v->heading_valid || dt <= 0.0f || dt > 1.0f) {
+        v->yaw_rate_deg = 0.0f;
+    } else if (dt > 0.001f) {
+        float k = dt / 0.3f;
+        if (k > 1.0f) k = 1.0f;
+        v->yaw_rate_deg += (dh / dt - v->yaw_rate_deg) * k;
+    }
+    v->heading_valid = true;
     v->airspeed = state->ind_airspeed * 0.01f;
     v->altitude_rel = (float)(state->relative_alt_valid
         ? state->relative_alt * 1e-3
@@ -858,8 +836,9 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
         if (dist_since > 0.001f) v->trail_last_dir = cur_dir;
         v->trail[v->trail_head] = v->position;
         v->trail_roll[v->trail_head] = v->roll_deg;
-        v->trail_pitch[v->trail_head] = v->pitch_deg;
+        v->trail_fwd[v->trail_head] = v->forward_speed;
         v->trail_vert[v->trail_head] = v->vertical_speed;
+        v->trail_turn[v->trail_head] = v->yaw_rate_deg;
         v->trail_time[v->trail_head] = v->current_time;
         float spd = sqrtf(v->ground_speed * v->ground_speed +
                           v->vertical_speed * v->vertical_speed);
@@ -1028,6 +1007,8 @@ void vehicle_reset_trail(vehicle_t *v) {
     v->trail_head = 0;
     v->trail_timer = 0.0f;
     v->trail_speed_max = 0.0f;
+    v->yaw_rate_deg = 0.0f;
+    v->heading_valid = false;
 }
 
 void vehicle_truncate_trail(vehicle_t *v, float time_s) {
@@ -1060,7 +1041,7 @@ void vehicle_truncate_trail(vehicle_t *v, float time_s) {
     }
 }
 
-Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
+Color vehicle_marker_color(float roll, float fwd, float vert, float turn, float speed,
                            float speed_max, const theme_t *theme, int trail_mode,
                            Color drone_color) {
     if (trail_mode == 3) {
@@ -1082,7 +1063,8 @@ Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
 
     float cr = (float)trail_color.r, cg = (float)trail_color.g, cb = (float)trail_color.b;
 
-    float back_t = pitch / 15.0f;
+    // 2 m/s against the heading is full backward tint
+    float back_t = -fwd / 2.0f;
     if (back_t < 0.0f) back_t = 0.0f;
     if (back_t > 1.0f) back_t = 1.0f;
     cr += (col_back.r - cr) * back_t;
@@ -1103,7 +1085,8 @@ Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
         cb += (col_down.b - cb) * dt2;
     }
 
-    float roll_t = roll / 15.0f;
+    // Bank and yaw rate share the port and starboard colors, 15 deg or 30 deg/s is full
+    float roll_t = roll / 15.0f + turn / 30.0f;
     if (roll_t > 1.0f) roll_t = 1.0f;
     if (roll_t < -1.0f) roll_t = -1.0f;
     if (roll_t > 0.0f) {
@@ -1127,9 +1110,9 @@ Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
 
 void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
                           int current_marker, Vector3 cam_pos, Camera3D camera,
-                          float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                          float speed_max, const theme_t *theme, int trail_mode,
-                          marker_type_t type, Color drone_color) {
+                          float *m_roll, float *m_fwd, float *m_vert, float *m_turn,
+                          float *m_speed, float speed_max, const theme_t *theme,
+                          int trail_mode, marker_type_t type, Color drone_color) {
     (void)labels;
     bool is_system = (type == MARKER_SYSTEM);
 
@@ -1143,7 +1126,7 @@ void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
 
         bool is_current = (i == current_marker);
 
-        Color col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
+        Color col = vehicle_marker_color(m_roll[i], m_fwd[i], m_vert[i], m_turn[i], m_speed[i],
                                          speed_max, theme, trail_mode, drone_color);
 
         if (is_current) {
@@ -1198,9 +1181,9 @@ void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
 void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count,
                                 int current_marker, Vector3 cam_pos, Camera3D camera,
                                 Font font_label, Font font_value,
-                                float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                                float speed_max, const theme_t *theme, int trail_mode,
-                                marker_type_t type, Color drone_color) {
+                                float *m_roll, float *m_fwd, float *m_vert, float *m_turn,
+                                float *m_speed, float speed_max, const theme_t *theme,
+                                int trail_mode, marker_type_t type, Color drone_color) {
     bool is_system = (type == MARKER_SYSTEM);
     Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
 
@@ -1249,8 +1232,9 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
         float rw = tw.x + pad_x * 2;
         float rh = tw.y + pad_y * 2;
 
-        Color text_col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
-                                              speed_max, theme, trail_mode, drone_color);
+        Color text_col = vehicle_marker_color(m_roll[i], m_fwd[i], m_vert[i], m_turn[i],
+                                              m_speed[i], speed_max, theme, trail_mode,
+                                              drone_color);
         if (is_current) {
             if (theme->thick_trails) {
                 text_col.r = (unsigned char)(text_col.r * 0.55f);
@@ -1647,8 +1631,9 @@ void vehicle_cleanup(vehicle_t *v) {
     UnloadModel(v->model);
     free(v->trail);
     free(v->trail_roll);
-    free(v->trail_pitch);
+    free(v->trail_fwd);
     free(v->trail_vert);
+    free(v->trail_turn);
     free(v->trail_speed);
     free(v->trail_time);
     free(v->material_roles);
@@ -1657,8 +1642,9 @@ void vehicle_cleanup(vehicle_t *v) {
     v->material_roles = NULL;
     v->mesh_roles = NULL;
     v->trail_roll = NULL;
-    v->trail_pitch = NULL;
+    v->trail_fwd = NULL;
     v->trail_vert = NULL;
+    v->trail_turn = NULL;
     v->trail_speed = NULL;
     v->trail_time = NULL;
 }

@@ -13,8 +13,9 @@
 typedef struct {
     Vector3 *trail;
     float *roll;
-    float *pitch;
+    float *fwd;
     float *vert;
+    float *turn;
     float *speed;
     float *time;
     int count;
@@ -27,8 +28,9 @@ typedef struct {
     Vector3 positions[REPLAY_MAX_SYS_MARKERS];
     char labels[REPLAY_MAX_SYS_MARKERS][HUD_MARKER_LABEL_MAX];
     float roll[REPLAY_MAX_SYS_MARKERS];
-    float pitch[REPLAY_MAX_SYS_MARKERS];
+    float fwd[REPLAY_MAX_SYS_MARKERS];
     float vert[REPLAY_MAX_SYS_MARKERS];
+    float turn[REPLAY_MAX_SYS_MARKERS];
     float speed[REPLAY_MAX_SYS_MARKERS];
     int count;
     int current;

@@ -12,6 +12,7 @@
 
 void replay_sync_vehicle(data_source_t *src, vehicle_t *veh) {
     veh->current_time = src->playback.position_s;
+    veh->heading_valid = false;  // every caller has just seeked
     vehicle_update(veh, &src->state, &src->home);
     vehicle_truncate_trail(veh, src->playback.position_s);
 }
@@ -51,8 +52,9 @@ void replay_resolve_and_build_trail(sys_markers_t *sm, precomp_trail_t *pt,
         memcpy(sm->labels[valid], sm->labels[i], HUD_MARKER_LABEL_MAX);
         sm->positions[valid] = vehicle->position;
         sm->roll[valid] = vehicle->roll_deg;
-        sm->pitch[valid] = vehicle->pitch_deg;
+        sm->fwd[valid] = vehicle->forward_speed;
         sm->vert[valid] = vehicle->vertical_speed;
+        sm->turn[valid] = vehicle->yaw_rate_deg;
         sm->speed[valid] = sqrtf(vehicle->ground_speed * vehicle->ground_speed +
                                   vehicle->vertical_speed * vehicle->vertical_speed);
         valid++;
@@ -63,19 +65,22 @@ void replay_resolve_and_build_trail(sys_markers_t *sm, precomp_trail_t *pt,
     if (!pt->ready) {
         pt->trail = calloc(PRECOMP_TRAIL_MAX, sizeof(Vector3));
         pt->roll  = calloc(PRECOMP_TRAIL_MAX, sizeof(float));
-        pt->pitch = calloc(PRECOMP_TRAIL_MAX, sizeof(float));
+        pt->fwd   = calloc(PRECOMP_TRAIL_MAX, sizeof(float));
         pt->vert  = calloc(PRECOMP_TRAIL_MAX, sizeof(float));
+        pt->turn  = calloc(PRECOMP_TRAIL_MAX, sizeof(float));
         pt->speed = calloc(PRECOMP_TRAIL_MAX, sizeof(float));
         pt->time  = calloc(PRECOMP_TRAIL_MAX, sizeof(float));
 
-        if (pt->trail && pt->roll && pt->pitch &&
-            pt->vert && pt->speed && pt->time) {
+        if (pt->trail && pt->roll && pt->fwd && pt->vert &&
+            pt->turn && pt->speed && pt->time) {
             double lat0 = vehicle->lat0;
             double lon0 = vehicle->lon0;
             double alt0 = vehicle->alt0;
             float cos_lat0 = (float)cos(lat0);
             Vector3 prev_pos = {0};
             bool prev_valid = false;
+            float prev_heading = 0.0f, prev_t = 0.0f;
+            bool have_heading = false;
             int pc = 0;
 
             // Save and override playback controls for pre-computation
@@ -108,6 +113,23 @@ void replay_resolve_and_build_trail(sys_markers_t *sm, precomp_trail_t *pt,
                     (float)(-ned_x)
                 };
 
+                float qw = st->quaternion[0], qx = st->quaternion[1];
+                float qy = st->quaternion[2], qz = st->quaternion[3];
+                if (qw < 0) { qw = -qw; qx = -qx; qy = -qy; qz = -qz; }
+                float heading_v = atan2f(2.0f*(qw*qz + qx*qy),
+                                         1.0f - 2.0f*(qy*qy + qz*qz));
+                float t_now = source->playback.position_s;
+                float turn_v = 0.0f;
+                if (have_heading && t_now - prev_t > 0.001f) {
+                    float dh = (heading_v - prev_heading) * RAD2DEG;
+                    if (dh > 180.0f) dh -= 360.0f;
+                    if (dh < -180.0f) dh += 360.0f;
+                    turn_v = dh / (t_now - prev_t);
+                }
+                prev_heading = heading_v;
+                prev_t = t_now;
+                have_heading = true;
+
                 if (prev_valid) {
                     float dx = pos.x - prev_pos.x;
                     float dy = pos.y - prev_pos.y;
@@ -115,23 +137,19 @@ void replay_resolve_and_build_trail(sys_markers_t *sm, precomp_trail_t *pt,
                     if (dx*dx + dy*dy + dz*dz < 0.25f) continue;
                 }
 
-                float qw = st->quaternion[0], qx = st->quaternion[1];
-                float qy = st->quaternion[2], qz = st->quaternion[3];
-                if (qw < 0) { qw = -qw; qx = -qx; qy = -qy; qz = -qz; }
                 float roll_v = atan2f(2.0f*(qw*qx + qy*qz),
                                     1.0f - 2.0f*(qx*qx + qy*qy)) * RAD2DEG;
-                float sin_p = 2.0f*(qw*qy - qz*qx);
-                if (sin_p > 1.0f) sin_p = 1.0f;
-                if (sin_p < -1.0f) sin_p = -1.0f;
-                float pitch_v = asinf(sin_p) * RAD2DEG;
+                float fwd_v = ((float)st->vx * cosf(heading_v) +
+                               (float)st->vy * sinf(heading_v)) * 0.01f;
                 float vert_s = -st->vz * 0.01f;
                 float gs = sqrtf((float)st->vx*st->vx + (float)st->vy*st->vy) * 0.01f;
                 float spd = sqrtf(gs*gs + vert_s*vert_s);
 
                 pt->trail[pc] = pos;
                 pt->roll[pc] = roll_v;
-                pt->pitch[pc] = pitch_v;
+                pt->fwd[pc] = fwd_v;
                 pt->vert[pc] = vert_s;
+                pt->turn[pc] = turn_v;
                 pt->speed[pc] = spd;
                 pt->time[pc] = source->playback.position_s;
                 if (spd > pt->speed_max) pt->speed_max = spd;
@@ -147,6 +165,15 @@ void replay_resolve_and_build_trail(sys_markers_t *sm, precomp_trail_t *pt,
         }
     }
 
+    // A seek cannot measure a rate, so system markers take turn from the precomputed trail
+    if (pt->ready && pt->count > 0) {
+        int k = 0;
+        for (int i = 0; i < sm->count; i++) {
+            while (k + 1 < pt->count && pt->time[k + 1] <= sm->times[i]) k++;
+            sm->turn[i] = pt->turn[k];
+        }
+    }
+
     // Restore playback to where it was
     data_source_seek(source, saved_pos);
     vehicle_reset_trail(vehicle);
@@ -159,7 +186,7 @@ void precomp_trail_init(precomp_trail_t *t) {
 }
 
 void precomp_trail_cleanup(precomp_trail_t *t) {
-    free(t->trail); free(t->roll); free(t->pitch);
-    free(t->vert); free(t->speed); free(t->time);
+    free(t->trail); free(t->roll); free(t->fwd); free(t->vert);
+    free(t->turn); free(t->speed); free(t->time);
     memset(t, 0, sizeof(*t));
 }

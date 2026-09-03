@@ -101,8 +101,8 @@ void hud_draw_transport(const hud_t *h,
     float dot_y = prog_y + prog_h / 2.0f;
     {
         const vehicle_t *pv = selected_vehicle;
-        Color ph_col = vehicle_marker_color(pv->roll_deg, pv->pitch_deg,
-                                            pv->vertical_speed,
+        Color ph_col = vehicle_marker_color(pv->roll_deg, pv->forward_speed,
+                                            pv->vertical_speed, pv->yaw_rate_deg,
                                             sqrtf(pv->ground_speed * pv->ground_speed +
                                                   pv->vertical_speed * pv->vertical_speed),
                                             pv->trail_speed_max, theme, trail_mode,
@@ -158,8 +158,9 @@ void hud_draw_transport(const hud_t *h,
                 float my = prog_y + prog_h / 2.0f;
 
                 bool is_cur = is_selected_drone && (i == markers->current);
-                Color mc = vehicle_marker_color(markers->roll[i], markers->pitch[i],
-                                                markers->vert[i], markers->speed[i],
+                Color mc = vehicle_marker_color(markers->roll[i], markers->fwd[i],
+                                                markers->vert[i], markers->turn[i],
+                                                markers->speed[i],
                                                 markers->speed_max, theme, trail_mode,
                                                 markers->color);
                 if (is_cur) {
@@ -227,8 +228,9 @@ void hud_draw_transport(const hud_t *h,
                 float my = prog_y + prog_h / 2.0f;
 
                 bool is_cur = is_selected_drone && sysm->selected && (i == sysm->current);
-                Color mc = vehicle_marker_color(sysm->roll[i], sysm->pitch[i],
-                                                sysm->vert[i], sysm->speed[i],
+                Color mc = vehicle_marker_color(sysm->roll[i], sysm->fwd[i],
+                                                sysm->vert[i], sysm->turn[i],
+                                                sysm->speed[i],
                                                 sysm->speed_max, theme, trail_mode,
                                                 sysm->color);
                 if (is_cur) {
