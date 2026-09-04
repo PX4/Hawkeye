@@ -1026,6 +1026,15 @@ int main(int argc, char *argv[]) {
                                  /*cam_pos=*/scene.camera.position,
                                  /*classic_colors=*/false);
                 }
+                if (trail_mode > 0) {
+                    vehicle_trails_begin(trail_mode, scene.theme);
+                    for (int i = 0; i < draw_count; i++) {
+                        if (vehicles[i].active || draw_count == 1)
+                            vehicle_draw_trail(&vehicles[i], scene.theme, trail_mode,
+                                               scene.camera.position);
+                    }
+                    vehicle_trails_end();
+                }
             EndMode3D();
 
             // Ground fill for ortho side views (front/back/left/right); no-op otherwise.
