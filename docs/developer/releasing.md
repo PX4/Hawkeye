@@ -139,6 +139,12 @@ Crashlytics also needs two repository secrets, and a release built without them 
 The two are gated independently. Without `FIREBASE_GOOGLE_SERVICES_JSON` the build ships with crash reporting dormant, exactly as a fork's CI does. Without `FIREBASE_SERVICE_ACCOUNT_JSON` the build still reports crashes, but the symbol upload is skipped and native stack traces arrive as raw addresses.
 The symbol upload runs before the APK is published, so a failure there stops the release rather than shipping a build whose native crashes cannot be read.
 
+Verifying crash reporting on a device has one trap worth knowing.
+Crashlytics persists the user's choice itself, and reinstalling does not reset it, so a device that ran an earlier build keeps whatever that build left behind.
+When the choice is off, reports are still captured but never uploaded, and logcat reads `Crashlytics automatic data collection DISABLED by API`.
+Turn the switch back on in Settings before treating this as a broken configuration.
+Clearing the app's data works too, at the cost of that device's log library.
+
 ## Checking a release build before tagging
 
 `.github/workflows/android.yml` has a `release-build` job that runs the same `assembleRelease` and `bundleRelease` tasks and the same verification scripts the release uses, including the signed path when the keystore secrets are present.
