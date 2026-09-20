@@ -229,6 +229,23 @@ adb shell getprop ro.product.cpu.abilist
 
 If that list contains neither `arm64-v8a` nor `x86_64`, the device cannot run Hawkeye.
 
+### A live session never connects on Android 17
+
+Android 17 put local network access behind a permission. Hawkeye asks for it when you tap
+**Start live session**; if it was turned down, the app can neither receive telemetry nor
+answer the vehicle, and the session sits at "waiting" forever.
+
+The Live screen says so and offers **Open settings**. You can also grant it by hand under
+**Settings > Apps > Hawkeye > Permissions > Nearby devices**. Check the current state with:
+
+```sh
+adb shell dumpsys package com.px4.hawkeye.android | grep ACCESS_LOCAL_NETWORK
+```
+
+`granted=true` means the permission is not the problem; carry on to the port checks below.
+Devices on Android 16 and earlier never ask, because the platform still covers local
+network traffic under `INTERNET`.
+
 ## MAVLink port conflicts
 
 ### `bind: Address already in use`

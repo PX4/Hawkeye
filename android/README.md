@@ -227,7 +227,8 @@ The `assets/` directory uses symlinks into the parent repo (fonts, models, shade
 To build:
 
 - JDK 21
-- Android SDK Platform 36.1, set by `compileSdk` in `app/build.gradle.kts`
+- Android SDK Platform 37 (Android 17), set by `compileSdk` in `build-logic`. The
+  sdkmanager package id is `platforms;android-37.0`; there is no `platforms;android-37`
 - NDK 30.0.14904198, exactly; `ndkVersion` pins it and AGP will not substitute another
 - CMake 3.22.1, exactly; `externalNativeBuild` pins it the same way
 
@@ -238,6 +239,65 @@ To run:
 - Android 10 (API 29) or newer, set by `minSdk`
 - An `arm64-v8a` or `x86_64` device or emulator, since those are the only ABIs built
 - OpenGL ES 3.0
+
+### Android SDK levels
+
+`compileSdk`, `minSdk` and `targetSdk` are declared once, in
+`build-logic/convention/src/main/kotlin/com/px4/hawkeye/buildlogic/AndroidCommon.kt`, and
+applied to every module including `:app`. No module build script overrides them, so the
+app and the libraries it links can never disagree.
+
+Two of Android 17's "apps targeting API 37" behavior changes reach this app. The list was
+derived by enumerating the platform's own gates with
+`adb shell dumpsys platform_compat | grep enableSinceTargetSdk=37` and auditing each hit
+against this codebase, which is the method to repeat on the next bump rather than reading
+the release notes alone:
+
+- **Local network access is now a runtime permission.** A live session receives MAVLink
+  over UDP from a vehicle on the user's own network, and from `targetSdk` 37 those reads
+  and writes fail with `EPERM` until `ACCESS_LOCAL_NETWORK` is granted. The Live setup
+  screen asks for it immediately before starting the renderer (`LocalNetworkPermission`
+  in `feature:live:presentation`); the grant is per UID, so it also covers the socket the
+  `:renderer` process opens. Below API 37 the platform does not define the permission and
+  the screen does not ask.
+- **Large screens ignore a fixed orientation, unless the app is a game.** On displays of
+  `sw >= 600dp`, `android:screenOrientation="landscape"` on `HawkeyeActivity` no longer
+  holds, and Android 17 removed the Android 16 opt-out property. `android:appCategory="game"`
+  on `<application>` is the one remaining exception and is why it is declared. The renderer
+  needs the lock: raylib 5.5's Android backend ignores `APP_CMD_WINDOW_RESIZED` and
+  `APP_CMD_CONFIG_CHANGED`, so a mid-session rotation would leave the GL surface at its
+  original geometry, and `HawkeyeActivity` cannot take the alternative of being recreated
+  because `onDestroy` halts the `:renderer` process. Two caveats remain: a user can still
+  override the aspect ratio from device settings, and nothing in the Android docs promises
+  the games exception is permanent. If it goes, the fix is a raylib patch that rebuilds the
+  EGL surface on resize.
+
+  The flag's effect is observable, so it can be re-checked whenever the target moves. On a
+  display of `sw >= 600dp`, `adb shell dumpsys activity activities` reports
+  `overrideOrientation=SCREEN_ORIENTATION_LANDSCAPE` for `HawkeyeActivity` while it is
+  declared; drop it and the platform rewrites that to `SCREEN_ORIENTATION_UNSPECIFIED`,
+  after which a mid-session rotation stretches the stale GL buffer and the attitude
+  indicator renders as an ellipse instead of a circle. A phone-sized display can stand in
+  for a tablet by lowering the density until `width_px / (density / 160) >= 600`, then
+  resetting it: on a 1080px-wide device `adb shell wm density 280` gives 617dp, but the
+  same number gives only 411dp at 720px, so compute it rather than copying it.
+
+  `appCategory="game"` also puts Hawkeye under Game Mode, where the platform may downscale
+  resolution and cap frame rate on its own. `res/xml/game_mode_config.xml` refuses both.
+  It declares neither `supportsBatteryGameMode` nor `supportsPerformanceGameMode`, since
+  each is a promise to implement that mode's optimizations. That file binds the platform's
+  `GameManagerService` only: a proprietary OEM booster keys off the same `appCategory` and
+  is not bound by it. Verify with `adb shell dumpsys game`, which should report no
+  intervention for the package.
+
+  The classification reaches further than Game Mode, and the rest is not configurable:
+  the app is grouped as a game in Settings battery and data usage, in Digital Wellbeing
+  and Family Link time limits, and in Do Not Disturb. On Pixel it also makes the Game
+  Dashboard bubble eligible to float over `HawkeyeActivity`. That last one is worth a look
+  on a device with the dashboard enabled, because the renderer layers two of its own
+  `TYPE_APPLICATION_PANEL` windows and relies on a tap-and-hold reaching the GL surface,
+  so a system bubble in a corner could eat that gesture. None of this changes the Play
+  Console category, which stays an app.
 
 ## Building
 

@@ -40,11 +40,9 @@ if (firebaseEnabled) {
 
 android {
     namespace = "com.px4.hawkeye.android"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    // compileSdk / minSdk / targetSdk come from the hawkeye.android.application convention
+    // plugin (build-logic AndroidCommon.kt), which every module shares. Setting them here
+    // too would silently win over it and let :app drift from the libraries it links.
 
     ndkVersion = "30.0.14904198"
 
@@ -57,7 +55,6 @@ android {
 
     defaultConfig {
         applicationId = "com.px4.hawkeye.android"
-        targetSdk = 36
         versionCode = hawkeyeVersionCode
         versionName = hawkeyeVersionName
 

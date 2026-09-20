@@ -1,5 +1,11 @@
 package com.px4.hawkeye.feature.live.presentation
 
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,15 +30,16 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.px4.hawkeye.core.designsystem.HawkeyeDimens
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
 import com.px4.hawkeye.core.designsystem.glassSurface
 import com.px4.hawkeye.core.presentation.LivePlaybackLauncher
 import com.px4.hawkeye.core.presentation.ObserveAsEvents
-import androidx.compose.ui.platform.LocalContext
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
@@ -47,9 +54,40 @@ fun LiveSetupRoot(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
+    // Raising the system prompt needs an activity result launcher, which only a composable
+    // can own. Whether to raise it is the ViewModel's call; this just carries the answer back.
+    val localNetworkPrompt = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        viewModel.onAction(LiveSetupAction.OnLocalNetworkPermissionResult(granted))
+    }
+
+    // A grant made on the system settings page comes back through no result callback, so
+    // the screen re-asks on every resume to retire a notice the user has already acted on.
+    LifecycleResumeEffect(Unit) {
+        viewModel.onAction(LiveSetupAction.OnResumed)
+        onPauseOrDispose { }
+    }
+
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {
             LiveSetupEvent.LaunchLiveSession -> liveLauncher.launch(context, state.listenPort)
+
+            LiveSetupEvent.RequestLocalNetworkPermission ->
+                localNetworkPrompt.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+
+            // runCatching, because this is the recovery path: a device policy can disable
+            // the Settings app, and an uncaught ActivityNotFoundException here would crash
+            // the very screen the user came to in order to fix something. NEW_TASK so it
+            // still resolves if LocalContext is ever not an Activity.
+            LiveSetupEvent.OpenAppSettings -> runCatching {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
         }
     }
 
@@ -137,6 +175,18 @@ fun LiveSetupScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            if (state.localNetworkDenied) {
+                Spacer(modifier = Modifier.height(HawkeyeDimens.itemSpacing))
+                Text(
+                    text = stringResource(R.string.live_local_network_denied),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                TextButton(onClick = { onAction(LiveSetupAction.OnOpenAppSettingsClicked) }) {
+                    Text(stringResource(R.string.live_open_settings))
+                }
+            }
+
             Spacer(modifier = Modifier.height(HawkeyeDimens.sectionSpacing))
             Button(
                 onClick = { onAction(LiveSetupAction.OnStartLiveClicked) },
@@ -157,6 +207,23 @@ private fun LiveSetupScreenPreview() {
                 deviceIp = "192.168.1.42",
                 listenPort = 19410,
                 endpoint = "udp://192.168.1.42:19410",
+            ),
+            onAction = {},
+            onBack = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun LiveSetupScreenPermissionDeniedPreview() {
+    HawkeyeTheme {
+        LiveSetupScreen(
+            state = LiveSetupState(
+                deviceIp = "192.168.1.42",
+                listenPort = 19410,
+                endpoint = "udp://192.168.1.42:19410",
+                localNetworkDenied = true,
             ),
             onAction = {},
             onBack = {},

@@ -9,4 +9,6 @@
     <string name="live_change_port_hint">Change the listen port in Settings.</string>
     <string name="live_retry_ip">Retry</string>
     <string name="live_start_button">Start live session</string>
+    <string name="live_local_network_denied">Hawkeye needs local network access to receive MAVLink telemetry. Without it a live session will never connect.</string>
+    <string name="live_open_settings">Open settings</string>
 </resources>

@@ -25,6 +25,36 @@
 
 #define DISCONNECT_TIMEOUT_S 2.0
 
+// Socket errors have to reach a log the platform actually collects. Android discards
+// stdout and stderr from a NativeActivity, which is the one platform where these errors
+// are expected (see below), so it gets liblog; everyone else gets stderr.
+#if defined(__ANDROID__)
+#include <android/log.h>
+#define MAVLINK_LOG_ERR(...) __android_log_print(ANDROID_LOG_ERROR, "Hawkeye", __VA_ARGS__)
+#else
+#define MAVLINK_LOG_ERR(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
+#ifdef _WIN32
+#define SOCK_LAST_ERROR() WSAGetLastError()
+#define SOCK_WOULD_BLOCK(e) ((e) == WSAEWOULDBLOCK)
+#else
+#define SOCK_LAST_ERROR() errno
+#define SOCK_WOULD_BLOCK(e) ((e) == EAGAIN || (e) == EWOULDBLOCK)
+#endif
+
+// Report a socket failure once per receiver. The motivating case is Android 17 and newer:
+// local network access is a runtime permission there, bind() is not covered by it, so the
+// socket opens normally and only the data path fails, with EPERM. Without this the refusal
+// is indistinguishable from a vehicle that is simply not transmitting.
+static void log_socket_error(const char *what, int err) {
+#ifdef _WIN32
+    MAVLINK_LOG_ERR("MAVLink %s failed: winsock error %d\n", what, err);
+#else
+    MAVLINK_LOG_ERR("MAVLink %s failed: %s (errno %d)\n", what, strerror(err), err);
+#endif
+}
+
 // Requested interval for the standard pose stream, in microseconds (50 Hz). Passed as
 // param2 of SET_MESSAGE_INTERVAL; -1 disables, 0 means the vehicle's default rate.
 #define STREAM_INTERVAL_US 20000.0f
@@ -45,8 +75,14 @@ static void send_command_long(mavlink_receiver_t *recv, uint16_t command,
         param1, param2, 0, 0, 0, 0, 0);
 
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    sendto(recv->sockfd, (char *)buf, len, 0,
-           (struct sockaddr *)recv->sender_addr, sizeof(struct sockaddr_in));
+    if (sendto(recv->sockfd, (char *)buf, len, 0,
+               (struct sockaddr *)recv->sender_addr, sizeof(struct sockaddr_in)) < 0) {
+        int err = SOCK_LAST_ERROR();
+        if (!recv->logged_tx_error) {
+            recv->logged_tx_error = true;
+            log_socket_error("sendto", err);
+        }
+    }
 }
 
 // On connect, ask the vehicle for everything Hawkeye renders. HOME_POSITION is a
@@ -137,7 +173,17 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
     for (;;) {
         int n = recvfrom(recv->sockfd, (char *)buf, sizeof(buf), 0,
                          (struct sockaddr *)&sender, &sender_len);
-        if (n <= 0) break;
+        if (n < 0) {
+            // An empty non-blocking socket reports would-block every frame; that is the
+            // normal idle path and says nothing. Anything else is a real failure.
+            int err = SOCK_LAST_ERROR();
+            if (!SOCK_WOULD_BLOCK(err) && !recv->logged_rx_error) {
+                recv->logged_rx_error = true;
+                log_socket_error("recvfrom", err);
+            }
+            break;
+        }
+        if (n == 0) break;
 
         got_data = true;
 

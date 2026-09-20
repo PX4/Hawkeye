@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Declaring android:appCategory="game" (see AndroidManifest.xml) also opts Hawkeye into
+    Game Mode, where the platform may apply interventions unasked. Two of them would
+    quietly degrade the renderer: downscaling drops the GL resolution, and the FPS override
+    caps the frame rate the replay clock is paced against. Both are refused here.
+
+    This binds GameManagerService, and nothing else. A proprietary OEM booster keys off the
+    same appCategory and ignores this file; `adb shell dumpsys game` shows what the platform
+    itself has applied.
+
+    Only the intervention opt-outs are declared. supportsBatteryGameMode /
+    supportsPerformanceGameMode are deliberately absent: declaring either is a promise that
+    the app implements its own optimization for that mode, and Hawkeye implements none.
+-->
+<game-mode-config
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:allowGameDownscaling="false"
+    android:allowGameFpsOverride="false" />

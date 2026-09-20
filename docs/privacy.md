@@ -60,6 +60,8 @@ Hawkeye connects to a vehicle or simulator **that you choose**, over MAVLink on 
 
 While a live session is running, Hawkeye accepts telemetry on all of the device's network interfaces, not only the loopback interface, so that a vehicle elsewhere on your network can reach it. It listens only while you have started a live session.
 
+On Android 17 and newer, that traffic requires your permission. Hawkeye asks for local network access when you start a live session, and Android will not let it send or receive anything on your network until you agree. Turning it down stops live sessions; it does not affect opening saved logs, which never touch the network.
+
 Apart from crash reports, Hawkeye does not check for updates, download maps, or contact any remote service.
 
 ## Android permissions
@@ -69,11 +71,14 @@ The Android app declares these permissions:
 | Permission | Why it is there |
 | --- | --- |
 | `INTERNET` | Sending and receiving MAVLink telemetry on your local network. |
+| `ACCESS_LOCAL_NETWORK` | Reaching your vehicle or simulator on Android 17 and newer, which no longer covers local network traffic under `INTERNET`. Requested only when you start a live session. |
 | `ACCESS_NETWORK_STATE` | Letting crash reporting wait for a working connection before sending a report. Also required by the AndroidX media library that plays the background video on the home screen. |
 | `WAKE_LOCK` | Not used by Hawkeye. Added by the media library above. |
 | `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` | Not used by Hawkeye. Added by the AndroidX core library for its own internal messaging. It is signature level, so no other app can hold it. |
 
-Hawkeye requests no permission that Android classes as dangerous. It does not ask for your location, your files, your contacts, your camera, or your microphone. The location data it displays comes from the flight logs you open and from the vehicle you connect to, not from the device's location services.
+Google Play lists `ACCESS_LOCAL_NETWORK` as "Nearby devices" on the store page for every device, but Hawkeye only ever asks for it on Android 17 and newer. On Android 16 and earlier the permission does not exist and nothing prompts you.
+
+`ACCESS_LOCAL_NETWORK` is the only permission Hawkeye asks you for, and only when you start a live session. Everything else in the table above is granted at install time and needs nothing from you. Hawkeye does not ask for your location, your files, your contacts, your camera, or your microphone. The location data it displays comes from the flight logs you open and from the vehicle you connect to, not from the device's location services.
 
 ## Desktop and browser builds
 

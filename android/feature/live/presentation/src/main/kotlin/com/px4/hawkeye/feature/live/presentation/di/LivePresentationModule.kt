@@ -6,5 +6,5 @@ import org.koin.dsl.module
 
 val livePresentationModule = module {
     // Parameterized: the shell passes the listen port (read from settings) at navigation time.
-    viewModel { (listenPort: Int) -> LiveSetupViewModel(get(), listenPort) }
+    viewModel { (listenPort: Int) -> LiveSetupViewModel(get(), get(), listenPort) }
 }
