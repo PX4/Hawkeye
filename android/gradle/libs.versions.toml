@@ -1,5 +1,5 @@
 [versions]
-agp = "9.2.1"
+agp = "9.4.1"
 kotlin = "2.2.10"
 
 # AndroidX
@@ -27,7 +27,7 @@ media3 = "1.10.1"
 
 # Local DB
 room = "2.7.1"
-ksp = "2.3.2"
+ksp = "2.3.6"
 
 # Async
 kotlinxCoroutines = "1.10.2"
