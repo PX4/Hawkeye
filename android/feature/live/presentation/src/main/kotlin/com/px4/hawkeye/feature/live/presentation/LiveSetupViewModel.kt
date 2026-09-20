@@ -45,12 +45,14 @@ class LiveSetupViewModel(
                 requestLaunch()
             }
             LiveSetupAction.OnRefreshIp -> refreshIp()
-            is LiveSetupAction.OnLocalNetworkPermissionResult ->
-                if (action.granted) {
-                    requestLaunch()
-                } else {
-                    _state.update { it.copy(localNetworkDenied = true) }
-                }
+            // Set from the result rather than only on refusal, so the flag can never
+            // outlive the condition it describes. Today a grant always follows a start
+            // click that already cleared it, but that ordering is not something this
+            // branch should have to rely on.
+            is LiveSetupAction.OnLocalNetworkPermissionResult -> {
+                _state.update { it.copy(localNetworkDenied = !action.granted) }
+                if (action.granted) requestLaunch()
+            }
             LiveSetupAction.OnOpenAppSettingsClicked ->
                 viewModelScope.launch { _events.send(LiveSetupEvent.OpenAppSettings) }
         }

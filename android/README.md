@@ -227,7 +227,8 @@ The `assets/` directory uses symlinks into the parent repo (fonts, models, shade
 To build:
 
 - JDK 21
-- Android SDK Platform 37 (Android 17), set by `compileSdk` in `build-logic`
+- Android SDK Platform 37 (Android 17), set by `compileSdk` in `build-logic`. The
+  sdkmanager package id is `platforms;android-37.0`; there is no `platforms;android-37`
 - NDK 30.0.14904198, exactly; `ndkVersion` pins it and AGP will not substitute another
 - CMake 3.22.1, exactly; `externalNativeBuild` pins it the same way
 
@@ -246,7 +247,11 @@ To run:
 applied to every module including `:app`. No module build script overrides them, so the
 app and the libraries it links can never disagree.
 
-Two of Android 17's "apps targeting API 37" behavior changes reach this app:
+Two of Android 17's "apps targeting API 37" behavior changes reach this app. The list was
+derived by enumerating the platform's own gates with
+`adb shell dumpsys platform_compat | grep enableSinceTargetSdk=37` and auditing each hit
+against this codebase, which is the method to repeat on the next bump rather than reading
+the release notes alone:
 
 - **Local network access is now a runtime permission.** A live session receives MAVLink
   over UDP from a vehicle on the user's own network, and from `targetSdk` 37 those reads
@@ -273,13 +278,26 @@ Two of Android 17's "apps targeting API 37" behavior changes reach this app:
   declared; drop it and the platform rewrites that to `SCREEN_ORIENTATION_UNSPECIFIED`,
   after which a mid-session rotation stretches the stale GL buffer and the attitude
   indicator renders as an ellipse instead of a circle. A phone-sized display can stand in
-  for a tablet with `adb shell wm density 280` (`wm density reset` afterwards).
+  for a tablet by lowering the density until `width_px / (density / 160) >= 600`, then
+  resetting it: on a 1080px-wide device `adb shell wm density 280` gives 617dp, but the
+  same number gives only 411dp at 720px, so compute it rather than copying it.
 
-  `appCategory="game"` also puts Hawkeye under Game Mode, where OEMs may downscale
-  resolution and cap frame rate on their own. `res/xml/game_mode_config.xml` refuses both.
+  `appCategory="game"` also puts Hawkeye under Game Mode, where the platform may downscale
+  resolution and cap frame rate on its own. `res/xml/game_mode_config.xml` refuses both.
   It declares neither `supportsBatteryGameMode` nor `supportsPerformanceGameMode`, since
-  each is a promise to implement that mode's optimizations. The flag is a manifest-only
-  signal and does not change the Play Console category, which stays an app.
+  each is a promise to implement that mode's optimizations. That file binds the platform's
+  `GameManagerService` only: a proprietary OEM booster keys off the same `appCategory` and
+  is not bound by it. Verify with `adb shell dumpsys game`, which should report no
+  intervention for the package.
+
+  The classification reaches further than Game Mode, and the rest is not configurable:
+  the app is grouped as a game in Settings battery and data usage, in Digital Wellbeing
+  and Family Link time limits, and in Do Not Disturb. On Pixel it also makes the Game
+  Dashboard bubble eligible to float over `HawkeyeActivity`. That last one is worth a look
+  on a device with the dashboard enabled, because the renderer layers two of its own
+  `TYPE_APPLICATION_PANEL` windows and relies on a tap-and-hold reaching the GL surface,
+  so a system bubble in a corner could eat that gesture. None of this changes the Play
+  Console category, which stays an app.
 
 ## Building
 

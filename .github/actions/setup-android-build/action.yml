@@ -44,12 +44,15 @@ runs:
         key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
         restore-keys: gradle-
 
-    # app/build.gradle.kts is in the hash because it pins ndkVersion and the CMake version.
-    # Without it, bumping the NDK would restore a stale cache, build into a new AGP config
-    # hash directory, and then never re-save because the key already exists.
+    # Everything that can move AGP's native config hash has to be in this key. That is
+    # app/build.gradle.kts, which pins ndkVersion and the CMake version, and AndroidCommon.kt,
+    # which owns minSdk: the hash contains -DANDROID_PLATFORM and -DCMAKE_SYSTEM_VERSION, both
+    # derived from minSdk. Miss one and bumping it restores a stale cache, builds into a new
+    # config hash directory, and then never re-saves because the key already exists, leaving
+    # native builds permanently cold.
     - name: Cache native build artifacts
       uses: actions/cache@v4
       with:
         path: android/app/.cxx
-        key: ${{ inputs.cxx-cache-prefix }}-${{ runner.os }}-${{ hashFiles('android/app/src/main/cpp/CMakeLists.txt', 'android/app/build.gradle.kts') }}
+        key: ${{ inputs.cxx-cache-prefix }}-${{ runner.os }}-${{ hashFiles('android/app/src/main/cpp/CMakeLists.txt', 'android/app/build.gradle.kts', 'android/build-logic/convention/src/main/kotlin/com/px4/hawkeye/buildlogic/AndroidCommon.kt') }}
         restore-keys: ${{ inputs.cxx-cache-prefix }}-${{ runner.os }}-

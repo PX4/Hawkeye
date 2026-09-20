@@ -18,23 +18,25 @@
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
     <!--
+        Two attributes below carry more weight than they look like they do.
+
         Backup is off on purpose. Imported ULog files live in filesDir/library and carry
         the flight's GPS track, so with Auto Backup enabled a user's flight paths would be
         copied to their Google Drive. allowBackup="false" stops cloud backup; it does not
         reliably stop device-to-device transfer on Android 12+, so data_extraction_rules.xml
         excludes everything from that path too. Re-enabling either means updating
         docs/privacy.md and the Play Data safety declaration to match.
-    -->
-    <!--
+
         appCategory="game" is load-bearing, not cosmetic. From targetSdk 37 Android ignores
         a fixed screen orientation on displays of sw >= 600dp, and removed the Android 16
         opt-out property; apps flagged as games are the one exception that still keeps it.
         HawkeyeActivity needs it: raylib 5.5's Android backend ignores APP_CMD_WINDOW_RESIZED,
         so a mid-session rotation would leave the GL surface at its original geometry.
-        The flag is independent of the Play Console category, which stays an app.
-
-        It also opts Hawkeye into Game Mode. res/xml/game_mode_config.xml, referenced below,
-        turns down the OEM interventions that would otherwise reach the renderer.
+        The flag is independent of the Play Console category, which stays an app. It also
+        classifies Hawkeye as a game for Game Mode, battery and data grouping, Digital
+        Wellbeing, and Do Not Disturb; res/xml/game_mode_config.xml, referenced below,
+        declines the platform interventions that would otherwise reach the renderer.
+        README.md, under "Android SDK levels", has the full consequence list.
     -->
     <application
         android:name=".HawkeyeApp"

@@ -57,6 +57,17 @@ class LiveSetupViewModelTest {
             vm.onAction(LiveSetupAction.OnLocalNetworkPermissionResult(granted = true))
             assertThat(awaitItem()).isSameInstanceAs(LiveSetupEvent.LaunchLiveSession)
         }
+    }
+
+    // The denial has to be established first: asserting isFalse() on a fresh ViewModel
+    // would pass whether or not the grant branch clears anything.
+    @Test
+    fun `granted local network permission clears a standing denial`() = runTest {
+        val vm = LiveSetupViewModel(FakeDeviceIpProvider("10.0.0.5"), listenPort = 19410)
+        vm.onAction(LiveSetupAction.OnLocalNetworkPermissionResult(granted = false))
+        assertThat(vm.state.value.localNetworkDenied).isTrue()
+
+        vm.onAction(LiveSetupAction.OnLocalNetworkPermissionResult(granted = true))
         assertThat(vm.state.value.localNetworkDenied).isFalse()
     }
 

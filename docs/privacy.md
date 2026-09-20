@@ -76,6 +76,8 @@ The Android app declares these permissions:
 | `WAKE_LOCK` | Not used by Hawkeye. Added by the media library above. |
 | `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` | Not used by Hawkeye. Added by the AndroidX core library for its own internal messaging. It is signature level, so no other app can hold it. |
 
+Google Play lists `ACCESS_LOCAL_NETWORK` as "Nearby devices" on the store page for every device, but Hawkeye only ever asks for it on Android 17 and newer. On Android 16 and earlier the permission does not exist and nothing prompts you.
+
 `ACCESS_LOCAL_NETWORK` is the only permission Hawkeye asks you for, and only when you start a live session. Everything else in the table above is granted at install time and needs nothing from you. Hawkeye does not ask for your location, your files, your contacts, your camera, or your microphone. The location data it displays comes from the flight logs you open and from the vehicle you connect to, not from the device's location services.
 
 ## Desktop and browser builds

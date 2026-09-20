@@ -71,12 +71,18 @@ fun LiveSetupRoot(
                     localNetworkPermission.launch(LocalNetworkPermission.NAME)
                 }
 
-            LiveSetupEvent.OpenAppSettings -> context.startActivity(
-                Intent(
-                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.fromParts("package", context.packageName, null),
-                ),
-            )
+            // runCatching, because this is the recovery path: a device policy can disable
+            // the Settings app, and an uncaught ActivityNotFoundException here would crash
+            // the very screen the user came to in order to fix something. NEW_TASK so it
+            // still resolves if LocalContext is ever not an Activity.
+            LiveSetupEvent.OpenAppSettings -> runCatching {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
         }
     }
 
