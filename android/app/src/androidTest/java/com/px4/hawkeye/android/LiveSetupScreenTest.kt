@@ -1,7 +1,9 @@
 package com.px4.hawkeye.android
 
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
@@ -71,6 +73,49 @@ class LiveSetupScreenTest {
         }
         composeRule.onNodeWithText("Start live session").performClick()
         assertTrue(actions.contains(LiveSetupAction.OnStartLiveClicked))
+    }
+
+    @Test
+    fun localNetworkDenial_explainsAndOffersSettings() {
+        val actions = mutableListOf<LiveSetupAction>()
+        composeRule.setContent {
+            HawkeyeTheme {
+                LiveSetupScreen(
+                    state = LiveSetupState(
+                        deviceIp = "10.0.0.5",
+                        listenPort = 19410,
+                        endpoint = "udp://10.0.0.5:19410",
+                        localNetworkDenied = true,
+                    ),
+                    onAction = { actions += it },
+                    onBack = {},
+                )
+            }
+        }
+        composeRule.onNodeWithText(
+            "Hawkeye needs local network access to receive MAVLink telemetry. " +
+                "Without it a live session will never connect.",
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText("Open settings").performClick()
+        assertTrue(actions.contains(LiveSetupAction.OnOpenAppSettingsClicked))
+    }
+
+    @Test
+    fun localNetworkDenial_isHidden_untilThePromptIsRefused() {
+        composeRule.setContent {
+            HawkeyeTheme {
+                LiveSetupScreen(
+                    state = LiveSetupState(
+                        deviceIp = "10.0.0.5",
+                        listenPort = 19410,
+                        endpoint = "udp://10.0.0.5:19410",
+                    ),
+                    onAction = {},
+                    onBack = {},
+                )
+            }
+        }
+        composeRule.onAllNodesWithText("Open settings").assertCountEquals(0)
     }
 
     @Test

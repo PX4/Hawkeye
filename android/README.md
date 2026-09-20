@@ -227,7 +227,7 @@ The `assets/` directory uses symlinks into the parent repo (fonts, models, shade
 To build:
 
 - JDK 21
-- Android SDK Platform 36.1, set by `compileSdk` in `app/build.gradle.kts`
+- Android SDK Platform 37 (Android 17), set by `compileSdk` in `build-logic`
 - NDK 30.0.14904198, exactly; `ndkVersion` pins it and AGP will not substitute another
 - CMake 3.22.1, exactly; `externalNativeBuild` pins it the same way
 
@@ -238,6 +238,48 @@ To run:
 - Android 10 (API 29) or newer, set by `minSdk`
 - An `arm64-v8a` or `x86_64` device or emulator, since those are the only ABIs built
 - OpenGL ES 3.0
+
+### Android SDK levels
+
+`compileSdk`, `minSdk` and `targetSdk` are declared once, in
+`build-logic/convention/src/main/kotlin/com/px4/hawkeye/buildlogic/AndroidCommon.kt`, and
+applied to every module including `:app`. No module build script overrides them, so the
+app and the libraries it links can never disagree.
+
+Two of Android 17's "apps targeting API 37" behavior changes reach this app:
+
+- **Local network access is now a runtime permission.** A live session receives MAVLink
+  over UDP from a vehicle on the user's own network, and from `targetSdk` 37 those reads
+  and writes fail with `EPERM` until `ACCESS_LOCAL_NETWORK` is granted. The Live setup
+  screen asks for it immediately before starting the renderer (`LocalNetworkPermission`
+  in `feature:live:presentation`); the grant is per UID, so it also covers the socket the
+  `:renderer` process opens. Below API 37 the platform does not define the permission and
+  the screen does not ask.
+- **Large screens ignore a fixed orientation, unless the app is a game.** On displays of
+  `sw >= 600dp`, `android:screenOrientation="landscape"` on `HawkeyeActivity` no longer
+  holds, and Android 17 removed the Android 16 opt-out property. `android:appCategory="game"`
+  on `<application>` is the one remaining exception and is why it is declared. The renderer
+  needs the lock: raylib 5.5's Android backend ignores `APP_CMD_WINDOW_RESIZED` and
+  `APP_CMD_CONFIG_CHANGED`, so a mid-session rotation would leave the GL surface at its
+  original geometry, and `HawkeyeActivity` cannot take the alternative of being recreated
+  because `onDestroy` halts the `:renderer` process. Two caveats remain: a user can still
+  override the aspect ratio from device settings, and nothing in the Android docs promises
+  the games exception is permanent. If it goes, the fix is a raylib patch that rebuilds the
+  EGL surface on resize.
+
+  The flag's effect is observable, so it can be re-checked whenever the target moves. On a
+  display of `sw >= 600dp`, `adb shell dumpsys activity activities` reports
+  `overrideOrientation=SCREEN_ORIENTATION_LANDSCAPE` for `HawkeyeActivity` while it is
+  declared; drop it and the platform rewrites that to `SCREEN_ORIENTATION_UNSPECIFIED`,
+  after which a mid-session rotation stretches the stale GL buffer and the attitude
+  indicator renders as an ellipse instead of a circle. A phone-sized display can stand in
+  for a tablet with `adb shell wm density 280` (`wm density reset` afterwards).
+
+  `appCategory="game"` also puts Hawkeye under Game Mode, where OEMs may downscale
+  resolution and cap frame rate on their own. `res/xml/game_mode_config.xml` refuses both.
+  It declares neither `supportsBatteryGameMode` nor `supportsPerformanceGameMode`, since
+  each is a promise to implement that mode's optimizations. The flag is a manifest-only
+  signal and does not change the Play Console category, which stays an app.
 
 ## Building
 

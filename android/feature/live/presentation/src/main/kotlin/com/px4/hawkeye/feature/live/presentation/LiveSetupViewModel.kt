@@ -15,6 +15,11 @@ import kotlinx.coroutines.launch
  * module stays free of a feature->feature dependency; the device IP comes from [DeviceIpProvider].
  * No live connection state here: the UDP socket is only bound once the renderer starts, so status
  * is surfaced in the renderer overlay, not on this screen.
+ *
+ * [LiveSetupEvent.LaunchLiveSession] means "the user wants a session", not "start one now": the
+ * root composable holds it back behind the local-network permission (see [LocalNetworkPermission])
+ * and reports the answer through [LiveSetupAction.OnLocalNetworkPermissionResult]. Keeping the
+ * permission APIs out here leaves this class a plain JVM unit test.
  */
 class LiveSetupViewModel(
     private val deviceIpProvider: DeviceIpProvider,
@@ -33,10 +38,26 @@ class LiveSetupViewModel(
 
     fun onAction(action: LiveSetupAction) {
         when (action) {
-            LiveSetupAction.OnStartLiveClicked ->
-                viewModelScope.launch { _events.send(LiveSetupEvent.LaunchLiveSession) }
+            // Clear any previous refusal first: the click is a fresh attempt, and on a
+            // soft denial the system shows the prompt again.
+            LiveSetupAction.OnStartLiveClicked -> {
+                _state.update { it.copy(localNetworkDenied = false) }
+                requestLaunch()
+            }
             LiveSetupAction.OnRefreshIp -> refreshIp()
+            is LiveSetupAction.OnLocalNetworkPermissionResult ->
+                if (action.granted) {
+                    requestLaunch()
+                } else {
+                    _state.update { it.copy(localNetworkDenied = true) }
+                }
+            LiveSetupAction.OnOpenAppSettingsClicked ->
+                viewModelScope.launch { _events.send(LiveSetupEvent.OpenAppSettings) }
         }
+    }
+
+    private fun requestLaunch() {
+        viewModelScope.launch { _events.send(LiveSetupEvent.LaunchLiveSession) }
     }
 
     private fun refreshIp() {

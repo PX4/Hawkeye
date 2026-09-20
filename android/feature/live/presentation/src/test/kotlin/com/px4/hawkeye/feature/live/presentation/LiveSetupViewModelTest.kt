@@ -3,8 +3,10 @@ package com.px4.hawkeye.feature.live.presentation
 import app.cash.turbine.test
 import assertk.assertThat
 import assertk.assertions.isEqualTo
+import assertk.assertions.isFalse
 import assertk.assertions.isNull
 import assertk.assertions.isSameInstanceAs
+import assertk.assertions.isTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -45,6 +47,48 @@ class LiveSetupViewModelTest {
         vm.events.test {
             vm.onAction(LiveSetupAction.OnStartLiveClicked)
             assertThat(awaitItem()).isSameInstanceAs(LiveSetupEvent.LaunchLiveSession)
+        }
+    }
+
+    @Test
+    fun `granted local network permission re-emits launch event`() = runTest {
+        val vm = LiveSetupViewModel(FakeDeviceIpProvider("10.0.0.5"), listenPort = 19410)
+        vm.events.test {
+            vm.onAction(LiveSetupAction.OnLocalNetworkPermissionResult(granted = true))
+            assertThat(awaitItem()).isSameInstanceAs(LiveSetupEvent.LaunchLiveSession)
+        }
+        assertThat(vm.state.value.localNetworkDenied).isFalse()
+    }
+
+    @Test
+    fun `denied local network permission surfaces on state and launches nothing`() = runTest {
+        val vm = LiveSetupViewModel(FakeDeviceIpProvider("10.0.0.5"), listenPort = 19410)
+        vm.events.test {
+            vm.onAction(LiveSetupAction.OnLocalNetworkPermissionResult(granted = false))
+            expectNoEvents()
+        }
+        assertThat(vm.state.value.localNetworkDenied).isTrue()
+    }
+
+    @Test
+    fun `start click clears a previous denial`() = runTest {
+        val vm = LiveSetupViewModel(FakeDeviceIpProvider("10.0.0.5"), listenPort = 19410)
+        vm.onAction(LiveSetupAction.OnLocalNetworkPermissionResult(granted = false))
+        assertThat(vm.state.value.localNetworkDenied).isTrue()
+
+        vm.events.test {
+            vm.onAction(LiveSetupAction.OnStartLiveClicked)
+            assertThat(awaitItem()).isSameInstanceAs(LiveSetupEvent.LaunchLiveSession)
+        }
+        assertThat(vm.state.value.localNetworkDenied).isFalse()
+    }
+
+    @Test
+    fun `open settings click emits settings event`() = runTest {
+        val vm = LiveSetupViewModel(FakeDeviceIpProvider("10.0.0.5"), listenPort = 19410)
+        vm.events.test {
+            vm.onAction(LiveSetupAction.OnOpenAppSettingsClicked)
+            assertThat(awaitItem()).isSameInstanceAs(LiveSetupEvent.OpenAppSettings)
         }
     }
 }

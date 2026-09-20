@@ -6,6 +6,18 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
+        Live mode receives MAVLink over UDP from a vehicle or simulator on the user's own
+        network. From targetSdk 37 the platform no longer grants that implicitly with
+        INTERNET: local-network reads and writes return EPERM until ACCESS_LOCAL_NETWORK is
+        granted at runtime. It is a runtime (dangerous) permission in the NEARBY_DEVICES
+        group, requested from the Live setup screen right before the renderer starts, and
+        it is the only dangerous permission Hawkeye asks for. Adding another means updating
+        the permission table in docs/privacy.md and the Play Data safety declaration.
+        Harmless below API 37, where the platform does not define it and nothing asks.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
+    <!--
         Backup is off on purpose. Imported ULog files live in filesDir/library and carry
         the flight's GPS track, so with Auto Backup enabled a user's flight paths would be
         copied to their Google Drive. allowBackup="false" stops cloud backup; it does not
@@ -13,9 +25,21 @@
         excludes everything from that path too. Re-enabling either means updating
         docs/privacy.md and the Play Data safety declaration to match.
     -->
+    <!--
+        appCategory="game" is load-bearing, not cosmetic. From targetSdk 37 Android ignores
+        a fixed screen orientation on displays of sw >= 600dp, and removed the Android 16
+        opt-out property; apps flagged as games are the one exception that still keeps it.
+        HawkeyeActivity needs it: raylib 5.5's Android backend ignores APP_CMD_WINDOW_RESIZED,
+        so a mid-session rotation would leave the GL surface at its original geometry.
+        The flag is independent of the Play Console category, which stays an app.
+
+        It also opts Hawkeye into Game Mode. res/xml/game_mode_config.xml, referenced below,
+        turns down the OEM interventions that would otherwise reach the renderer.
+    -->
     <application
         android:name=".HawkeyeApp"
         android:allowBackup="false"
+        android:appCategory="game"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -34,6 +58,10 @@
         <meta-data
             android:name="firebase_crashlytics_collection_enabled"
             android:value="true" />
+
+        <meta-data
+            android:name="android.game_mode_config"
+            android:resource="@xml/game_mode_config" />
 
         <activity
             android:name=".MainActivity"
