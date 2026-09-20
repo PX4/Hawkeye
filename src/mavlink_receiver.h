@@ -46,6 +46,8 @@ typedef struct {
     home_position_t home;
     bool sender_known;           // true once we've seen a packet
     uint8_t sender_addr[16];     // sockaddr_in stored as opaque bytes
+    bool logged_rx_error;        // socket errors are logged once, not once per frame
+    bool logged_tx_error;
 } mavlink_receiver_t;
 
 // Initialize UDP socket on given port with MAVLink parse channel. Returns 0 on success.

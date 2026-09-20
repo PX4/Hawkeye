@@ -1,5 +1,6 @@
 package com.px4.hawkeye.feature.live.presentation
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.px4.hawkeye.core.designsystem.HawkeyeDimens
 import com.px4.hawkeye.core.designsystem.HawkeyeTheme
@@ -52,24 +54,27 @@ fun LiveSetupRoot(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    val localNetworkPermission = rememberLauncherForActivityResult(
+    // Raising the system prompt needs an activity result launcher, which only a composable
+    // can own. Whether to raise it is the ViewModel's call; this just carries the answer back.
+    val localNetworkPrompt = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         viewModel.onAction(LiveSetupAction.OnLocalNetworkPermissionResult(granted))
     }
 
+    // A grant made on the system settings page comes back through no result callback, so
+    // the screen re-asks on every resume to retire a notice the user has already acted on.
+    LifecycleResumeEffect(Unit) {
+        viewModel.onAction(LiveSetupAction.OnResumed)
+        onPauseOrDispose { }
+    }
+
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {
-            // The renderer's MAVLink socket is dead in the water without local-network
-            // access on Android 17+, so the permission is settled here rather than in the
-            // :renderer process, which has no UI to prompt from. A grant comes back as
-            // OnLocalNetworkPermissionResult and re-emits this event, now passing the check.
-            LiveSetupEvent.LaunchLiveSession ->
-                if (LocalNetworkPermission.isGranted(context)) {
-                    liveLauncher.launch(context, state.listenPort)
-                } else {
-                    localNetworkPermission.launch(LocalNetworkPermission.NAME)
-                }
+            LiveSetupEvent.LaunchLiveSession -> liveLauncher.launch(context, state.listenPort)
+
+            LiveSetupEvent.RequestLocalNetworkPermission ->
+                localNetworkPrompt.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
 
             // runCatching, because this is the recovery path: a device policy can disable
             // the Settings app, and an uncaught ActivityNotFoundException here would crash

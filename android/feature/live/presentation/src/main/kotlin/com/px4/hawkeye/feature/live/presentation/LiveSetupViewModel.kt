@@ -3,6 +3,7 @@ package com.px4.hawkeye.feature.live.presentation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.px4.hawkeye.core.domain.DeviceIpProvider
+import com.px4.hawkeye.core.domain.LocalNetworkPermission
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,13 +17,14 @@ import kotlinx.coroutines.launch
  * No live connection state here: the UDP socket is only bound once the renderer starts, so status
  * is surfaced in the renderer overlay, not on this screen.
  *
- * [LiveSetupEvent.LaunchLiveSession] means "the user wants a session", not "start one now": the
- * root composable holds it back behind the local-network permission (see [LocalNetworkPermission])
- * and reports the answer through [LiveSetupAction.OnLocalNetworkPermissionResult]. Keeping the
- * permission APIs out here leaves this class a plain JVM unit test.
+ * A live session cannot work without local network access, so the decision to start one or ask
+ * for permission first lives here rather than in the composable, behind [LocalNetworkPermission].
+ * The host only ever executes the resulting event: it owns the prompt, because raising one needs
+ * an activity result launcher, but it decides nothing.
  */
 class LiveSetupViewModel(
     private val deviceIpProvider: DeviceIpProvider,
+    private val localNetworkPermission: LocalNetworkPermission,
     listenPort: Int,
 ) : ViewModel() {
 
@@ -38,28 +40,38 @@ class LiveSetupViewModel(
 
     fun onAction(action: LiveSetupAction) {
         when (action) {
-            // Clear any previous refusal first: the click is a fresh attempt, and on a
-            // soft denial the system shows the prompt again.
-            LiveSetupAction.OnStartLiveClicked -> {
-                _state.update { it.copy(localNetworkDenied = false) }
-                requestLaunch()
-            }
+            LiveSetupAction.OnStartLiveClicked -> startOrRequestPermission()
             LiveSetupAction.OnRefreshIp -> refreshIp()
-            // Set from the result rather than only on refusal, so the flag can never
-            // outlive the condition it describes. Today a grant always follows a start
-            // click that already cleared it, but that ordering is not something this
-            // branch should have to rely on.
+
+            // Derived from the result rather than only set on refusal, so the notice can
+            // never outlive the condition it describes.
             is LiveSetupAction.OnLocalNetworkPermissionResult -> {
                 _state.update { it.copy(localNetworkDenied = !action.granted) }
-                if (action.granted) requestLaunch()
+                if (action.granted) send(LiveSetupEvent.LaunchLiveSession)
             }
-            LiveSetupAction.OnOpenAppSettingsClicked ->
-                viewModelScope.launch { _events.send(LiveSetupEvent.OpenAppSettings) }
+
+            LiveSetupAction.OnOpenAppSettingsClicked -> send(LiveSetupEvent.OpenAppSettings)
+
+            // Only ever clears. Resuming must not be able to invent a refusal the user
+            // never made, which is what would happen on first composition otherwise.
+            LiveSetupAction.OnResumed ->
+                if (localNetworkPermission.isGranted()) {
+                    _state.update { it.copy(localNetworkDenied = false) }
+                }
         }
     }
 
-    private fun requestLaunch() {
-        viewModelScope.launch { _events.send(LiveSetupEvent.LaunchLiveSession) }
+    private fun startOrRequestPermission() {
+        if (localNetworkPermission.isGranted()) {
+            _state.update { it.copy(localNetworkDenied = false) }
+            send(LiveSetupEvent.LaunchLiveSession)
+        } else {
+            send(LiveSetupEvent.RequestLocalNetworkPermission)
+        }
+    }
+
+    private fun send(event: LiveSetupEvent) {
+        viewModelScope.launch { _events.send(event) }
     }
 
     private fun refreshIp() {
