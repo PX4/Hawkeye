@@ -401,6 +401,15 @@ jobs:
         env:
           VERSION: ${{ needs.source-tarball.outputs.version }}
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          # This is a second Gradle invocation, and "Decode upload keystore" exported
+          # HAWKEYE_UPLOAD_KEYSTORE through GITHUB_ENV, so it is still set here. :app
+          # configures a signing config whenever that path is present and requires the
+          # matching password and alias, which were scoped to the build step alone, so
+          # without these two the symbol upload dies at configuration time and takes the
+          # APK publish and the Play upload down with it. They stay step-scoped rather
+          # than moving to the job, so no third-party action ever sees them.
+          HAWKEYE_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          HAWKEYE_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
         run: |
           set -euo pipefail
           # Trap rather than a trailing rm, so the key is shredded even when the upload
