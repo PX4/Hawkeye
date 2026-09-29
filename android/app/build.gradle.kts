@@ -8,7 +8,7 @@ plugins {
 }
 
 // Release builds take their version from the git tag, passed as
-// -PhawkeyeVersionName=<x.y.z> by .github/workflows/release.yml. Local and CI debug
+// -PhawkeyeVersionName=<x.y.z> by .github/workflows/android-release.yml. Local and CI debug
 // builds fall back to a dev version so no extra flags are needed.
 val hawkeyeVersionName: String =
     providers.gradleProperty("hawkeyeVersionName").getOrElse("0.0.0-dev")

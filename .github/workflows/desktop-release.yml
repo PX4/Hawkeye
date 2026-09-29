@@ -1,0 +1,129 @@
+name: Desktop release
+
+# Called by release.yml for desktop-v* tags. Builds the source tarball, Linux .debs, and
+# Windows zip and uploads them to the draft release release.yml created. The macOS bottle
+# is homebrew-release.yml, which release.yml calls once this finishes, using the
+# tarball's checksum from the outputs below.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version, the tag with its prefix stripped
+        required: true
+        type: string
+    outputs:
+      tarball_sha256:
+        description: SHA-256 of the uploaded source tarball, which the Homebrew formula pins
+        value: ${{ jobs.source-tarball.outputs.tarball_sha256 }}
+
+permissions:
+  contents: write
+
+jobs:
+  source-tarball:
+    name: Source tarball
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ inputs.version }}
+      tarball_sha256: ${{ steps.tarball.outputs.sha256 }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Create source tarball
+        id: tarball
+        run: .github/scripts/desktop/make-source-tarball.sh "${{ inputs.version }}"
+
+      - name: Upload source tarball
+        run: gh release upload "${{ github.ref_name }}" "hawkeye-${{ inputs.version }}.tar.gz" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deb-amd64:
+    name: Deb (amd64)
+    needs: source-tarball
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install build dependencies
+        run: .github/scripts/desktop/install-linux-deps.sh amd64
+
+      - name: Configure
+        run: .github/scripts/desktop/configure-linux.sh amd64 "${{ needs.source-tarball.outputs.version }}"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package .deb
+        run: cd build && cpack -G DEB
+
+      - name: Smoke test
+        run: .github/scripts/desktop/smoke-test-linux-deb.sh
+
+      - name: Upload .deb to release
+        run: gh release upload ${{ github.ref_name }} build/*.deb --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deb-arm64:
+    name: Deb (arm64)
+    needs: source-tarball
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install cross-compilation toolchain
+        run: .github/scripts/desktop/install-linux-deps.sh arm64
+
+      - name: Configure
+        run: .github/scripts/desktop/configure-linux.sh arm64 "${{ needs.source-tarball.outputs.version }}"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package .deb
+        run: cd build && cpack -G DEB
+
+      - name: Upload .deb to release
+        run: gh release upload ${{ github.ref_name }} build/*.deb --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  windows-x64:
+    name: Windows (x64)
+    needs: source-tarball
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DHAWKEYE_VERSION=${{ needs.source-tarball.outputs.version }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Stage release
+        shell: pwsh
+        run: ./.github/scripts/desktop/stage-windows-zip.ps1 -Version "${{ needs.source-tarball.outputs.version }}"
+
+      - name: Smoke test
+        shell: pwsh
+        run: ./.github/scripts/desktop/smoke-test-windows.ps1
+
+      - name: Upload zip to release
+        shell: pwsh
+        run: gh release upload "${{ github.ref_name }}" "hawkeye-${{ needs.source-tarball.outputs.version }}-windows-x64.zip" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

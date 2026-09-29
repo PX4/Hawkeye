@@ -119,7 +119,7 @@ jobs:
           HAWKEYE_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
         run: ./gradlew assembleRelease bundleRelease -PhawkeyeVersionName=0.0.0-ci
 
-      # The verification the tag-driven release path runs (release.yml adopts the signed
+      # The verification the tag-driven release path runs (android-release.yml adopts the signed
       # and bundle checks in the follow-up that adds its keystore). These scripts are the
       # only genuinely new shell in the release path, so exercising them here is the
       # point of this job.
