@@ -100,11 +100,13 @@ jobs:
         run: .github/scripts/release/publish.sh "$GITHUB_REF_NAME" "$SCOPE" "$PRERELEASE"
 
   # Desktop only, and only after publish: the formula points at the release's public
-  # download URLs, which do not resolve while it is a draft.
+  # download URLs, which do not resolve while it is a draft. !failure() is required, not
+  # decoration: without a status function the condition gets an implicit success(),
+  # which also counts the skipped android job upstream of publish and skips this job.
   homebrew-tap:
     name: Homebrew tap
     needs: [version, desktop, homebrew, publish]
-    if: needs.version.outputs.scope == 'desktop' && needs.publish.result == 'success'
+    if: ${{ !failure() && !cancelled() && needs.version.outputs.scope == 'desktop' && needs.publish.result == 'success' }}
     uses: ./.github/workflows/homebrew-tap.yml
     with:
       version: ${{ needs.version.outputs.version }}
