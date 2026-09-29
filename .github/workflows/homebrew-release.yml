@@ -55,6 +55,11 @@ jobs:
           mkdir -p "$(brew --repo)/Library/Taps/PX4/homebrew-px4/Formula"
           .github/scripts/homebrew/render-formula.py --url "file://$RUNNER_TEMP/hawkeye-$VERSION.tar.gz" --sha256 "$TARBALL_SHA" > "$(brew --repo)/Library/Taps/PX4/homebrew-px4/Formula/hawkeye.rb"
 
+      # Current Homebrew refuses to load formulae from a non-official tap until it is
+      # trusted; older versions have no trust command and load it without asking.
+      - name: Trust px4/px4
+        run: if brew commands --quiet | grep -qx trust; then brew trust --tap px4/px4; fi
+
       - name: Build bottle
         run: brew install --build-bottle PX4/px4/hawkeye
 
