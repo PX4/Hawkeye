@@ -3,503 +3,113 @@ name: Release
 on:
   push:
     tags:
+      # desktop-v* releases the desktop builds and the Homebrew tap; android-v* releases
+      # the Android app. Bare v* is listed only so the version job can reject it with a
+      # pointer to the two prefixes; it used to release everything at once.
+      - 'desktop-v*'
+      - 'android-v*'
       - 'v*'
 
 permissions:
   contents: write
 
 jobs:
-  # ── Job 1: Create source tarball and draft release ─────────────────────────
-  source-tarball:
-    name: Source tarball
+  # The desktop and Android releases key off these outputs, and never both run for one
+  # tag.
+  version:
+    name: Version and scope
     runs-on: ubuntu-latest
     outputs:
+      scope: ${{ steps.version.outputs.scope }}
       version: ${{ steps.version.outputs.version }}
-      tarball_sha256: ${{ steps.tarball.outputs.sha256 }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
 
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          sparse-checkout: .github/scripts
 
-      - name: Extract version from tag
+      - name: Derive version and scope from tag
         id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          # gh release create infers nothing from the tag name, so without this an rc tag
-          # publishes as a full release and GitHub serves it as Latest to everyone. Any
-          # suffix after the patch version marks a prerelease; a bare MAJOR.MINOR.PATCH is
-          # the only final form.
-          case "$VERSION" in
-            *-*) echo "prerelease=true"  >> "$GITHUB_OUTPUT" ;;
-            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
-          esac
+        run: .github/scripts/release/get-release-versions.sh
 
-      - name: Create source tarball
-        id: tarball
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          tar czf /tmp/hawkeye-${VERSION}.tar.gz \
-            --exclude='.git' \
-            --exclude='tests/fixtures/*.ulg' \
-            --exclude='build' \
-            --transform="s,^\.,hawkeye-${VERSION}," \
-            .
-          mv /tmp/hawkeye-${VERSION}.tar.gz .
-          SHA=$(sha256sum hawkeye-${VERSION}.tar.gz | awk '{print $1}')
-          echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "Tarball SHA256: ${SHA}"
-
-      - name: Create release
-        run: |
-          gh release create ${{ github.ref_name }} \
-            --title "${{ github.ref_name }}" \
-            --generate-notes \
-            --prerelease=${{ steps.version.outputs.prerelease }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload source tarball
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          gh release upload ${{ github.ref_name }} hawkeye-${VERSION}.tar.gz
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ── Job 2a: macOS arm64 bottle ─────────────────────────────────────────────
-  bottle-arm64:
-    name: Bottle (arm64)
-    needs: source-tarball
-    runs-on: macos-14
-    outputs:
-      bottle_sha256: ${{ steps.bottle.outputs.sha256 }}
-      bottle_tag: ${{ steps.bottle.outputs.tag }}
-
-    steps:
-      - name: Set up tap with formula
-        env:
-          VERSION: ${{ needs.source-tarball.outputs.version }}
-          TARBALL_SHA: ${{ needs.source-tarball.outputs.tarball_sha256 }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          export FORMULA_DIR="$(brew --repo)/Library/Taps/PX4/homebrew-px4/Formula"
-          mkdir -p "$FORMULA_DIR"
-          python3 -c "
-          import os
-          formula = '''class Hawkeye < Formula
-            desc \"Real-time 3D flight visualizer for PX4 with ULog replay and multi-drone analysis\"
-            homepage \"https://github.com/PX4/Hawkeye\"
-            url \"https://github.com/PX4/Hawkeye/releases/download/{tag}/hawkeye-{version}.tar.gz\"
-            sha256 \"{sha}\"
-            license \"BSD-3-Clause\"
-
-            depends_on \"cmake\" => :build
-
-            def install
-              system \"cmake\", \"-S\", \".\", \"-B\", \"build\", \"-DCMAKE_BUILD_TYPE=Release\", \"-DHOMEBREW_ALLOW_FETCHCONTENT=ON\", *std_cmake_args
-              system \"cmake\", \"--build\", \"build\"
-              system \"cmake\", \"--install\", \"build\", \"--prefix\", prefix
-            end
-
-            test do
-              assert_predicate bin/\"hawkeye\", :executable?
-            end
-          end
-          '''.format(
-              tag=os.environ['TAG'],
-              version=os.environ['VERSION'],
-              sha=os.environ['TARBALL_SHA'],
-          )
-          with open(os.environ['FORMULA_DIR'] + '/hawkeye.rb', 'w') as f:
-              f.write(formula)
-          "
-
-      - name: Build bottle
-        run: brew install --build-bottle PX4/px4/hawkeye
-
-      - name: Package bottle
-        id: bottle
-        run: |
-          TAG=${{ github.ref_name }}
-          brew bottle \
-            --json \
-            --root-url="https://github.com/PX4/Hawkeye/releases/download/${TAG}" \
-            PX4/px4/hawkeye
-
-          BOTTLE_JSON=$(ls hawkeye--*.bottle.json)
-          BOTTLE_FILE=$(ls hawkeye--*.bottle.tar.gz)
-          CLEAN_NAME=$(echo "$BOTTLE_FILE" | sed 's/--/-/')
-          mv "$BOTTLE_FILE" "$CLEAN_NAME"
-
-          BOTTLE_SHA=$(python3 -c "
-          import json, sys
-          data = json.load(open(sys.argv[1]))
-          formula = list(data.keys())[0]
-          tags = data[formula]['bottle']['tags']
-          tag = list(tags.keys())[0]
-          print(tags[tag]['sha256'])
-          " "$BOTTLE_JSON")
-
-          BOTTLE_TAG=$(python3 -c "
-          import json, sys
-          data = json.load(open(sys.argv[1]))
-          formula = list(data.keys())[0]
-          tags = data[formula]['bottle']['tags']
-          print(list(tags.keys())[0])
-          " "$BOTTLE_JSON")
-
-          echo "sha256=${BOTTLE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "tag=${BOTTLE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "file=${CLEAN_NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload bottle to release
-        run: gh release upload ${{ github.ref_name }} ${{ steps.bottle.outputs.file }} --repo ${{ github.repository }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ── Job 2b: Linux amd64 .deb ──────────────────────────────────────────────
-  deb-amd64:
-    name: Deb (amd64)
-    needs: source-tarball
+  # Every release starts as a draft and is published only once all of its artifacts are
+  # uploaded, so nobody sees a half-built release and a failed run leaves nothing public.
+  create-draft:
+    name: Create draft release
+    needs: version
     runs-on: ubuntu-latest
-
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      SCOPE: ${{ needs.version.outputs.scope }}
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          sparse-checkout: .github/scripts
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev \
-            libxinerama-dev libxcursor-dev libxi-dev
+      - name: Create draft release
+        run: .github/scripts/release/create-draft.sh "$GITHUB_REF_NAME" "$SCOPE" "$VERSION" "$PRERELEASE"
 
-      - name: Configure
-        run: |
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -DHAWKEYE_VERSION=${{ needs.source-tarball.outputs.version }}
+  desktop:
+    name: Desktop
+    needs: [version, create-draft]
+    if: needs.version.outputs.scope == 'desktop'
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
 
-      - name: Build
-        run: cmake --build build --config Release
+  homebrew:
+    name: Homebrew bottle
+    needs: [version, desktop]
+    if: needs.version.outputs.scope == 'desktop'
+    uses: ./.github/workflows/homebrew-release.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      tarball_sha256: ${{ needs.desktop.outputs.tarball_sha256 }}
 
-      - name: Package .deb
-        run: cd build && cpack -G DEB
-
-      - name: Smoke test
-        run: |
-          sudo dpkg -i build/*.deb
-          which hawkeye
-          ls /usr/share/hawkeye/models/
-          ls /usr/share/hawkeye/shaders/
-          ls /usr/share/hawkeye/fonts/
-
-      - name: Upload .deb to release
-        run: gh release upload ${{ github.ref_name }} build/*.deb
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ── Job 2c: Linux arm64 .deb (cross-compiled) ─────────────────────────────
-  deb-arm64:
-    name: Deb (arm64)
-    needs: source-tarball
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Install cross-compilation toolchain
-        run: |
-          sudo dpkg --add-architecture arm64
-          # Pin all existing sources (DEB822 .sources and legacy .list) to amd64
-          for f in /etc/apt/sources.list.d/*.sources; do
-            [ -f "$f" ] && sudo sed -i '/^Architectures:/d; /^Types:/a Architectures: amd64' "$f" || true
-          done
-          for f in /etc/apt/sources.list.d/*.list; do
-            [ -f "$f" ] && sudo sed -i '/^\s*#/!{/\[arch=/!s/^deb /deb [arch=amd64] /}' "$f" || true
-          done
-          [ -f /etc/apt/sources.list ] && sudo sed -i '/^\s*#/!{/\[arch=/!s/^deb /deb [arch=amd64] /}' /etc/apt/sources.list || true
-          # Add arm64 ports
-          CODENAME=$(lsb_release -cs)
-          printf "Types: deb\nURIs: http://ports.ubuntu.com/\nSuites: %s %s-updates\nComponents: main restricted universe multiverse\nArchitectures: arm64\n" "$CODENAME" "$CODENAME" | sudo tee /etc/apt/sources.list.d/arm64-ports.sources
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          sudo apt-get install -y libgl1-mesa-dev:arm64 libx11-dev:arm64 libxrandr-dev:arm64 \
-            libxinerama-dev:arm64 libxcursor-dev:arm64 libxi-dev:arm64
-
-      - name: Configure
-        run: |
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-            -DCMAKE_FIND_ROOT_PATH="/usr/aarch64-linux-gnu;/usr" \
-            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
-            -DCMAKE_LIBRARY_ARCHITECTURE=aarch64-linux-gnu \
-            -DHAWKEYE_VERSION=${{ needs.source-tarball.outputs.version }} \
-            -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64
-
-      - name: Build
-        run: cmake --build build --config Release
-
-      - name: Package .deb
-        run: cd build && cpack -G DEB
-
-      - name: Upload .deb to release
-        run: gh release upload ${{ github.ref_name }} build/*.deb
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ── Job 2d: Windows x64 portable zip ──────────────────────────────────────
-  windows-x64:
-    name: Windows (x64)
-    needs: source-tarball
-    runs-on: windows-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DHAWKEYE_VERSION=${{ needs.source-tarball.outputs.version }}
-
-      - name: Build
-        run: cmake --build build --config Release
-
-      - name: Stage release
-        shell: pwsh
-        run: |
-          $version = "${{ needs.source-tarball.outputs.version }}"
-          $stage = "hawkeye-$version-windows-x64"
-          New-Item -ItemType Directory -Path $stage | Out-Null
-          Copy-Item "build\Release\hawkeye.exe" $stage
-          Copy-Item -Recurse "build\Release\models"   $stage
-          Copy-Item -Recurse "build\Release\shaders"  $stage
-          Copy-Item -Recurse "build\Release\fonts"    $stage
-          Copy-Item -Recurse "build\Release\textures" $stage
-          Copy-Item -Recurse "build\Release\themes"   $stage
-          Copy-Item "LICENSE"   $stage
-          Copy-Item "NOTICE.md" $stage
-          Copy-Item "README.md" $stage
-          Compress-Archive -Path $stage -DestinationPath "$stage.zip"
-
-      - name: Smoke test
-        shell: pwsh
-        run: |
-          $exe = "build\Release\hawkeye.exe"
-          if (-not (Test-Path $exe)) { throw "hawkeye.exe not produced" }
-          & $exe --help
-          if ($LASTEXITCODE -ne 0) { throw "hawkeye --help exited $LASTEXITCODE" }
-
-      - name: Upload zip to release
-        shell: pwsh
-        run: |
-          $version = "${{ needs.source-tarball.outputs.version }}"
-          gh release upload ${{ github.ref_name }} "hawkeye-$version-windows-x64.zip"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ── Job 2e: Android universal APK ─────────────────────────────────────────
   android:
     name: Android
-    needs: source-tarball
-    runs-on: ubuntu-latest
-    # The secrets context is unavailable in every if condition, job-level and step-level
-    # alike, so presence is computed here as booleans: each expression result is the
-    # string "true" or "false", which is all the guards need, and no secret material
-    # lands in any step's environment.
-    env:
-      HAS_UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
-      HAS_PLAY_SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
-      HAS_FIREBASE_CONFIG: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON != '' }}
-      HAS_FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON != '' }}
+    needs: [version, create-draft]
+    if: needs.version.outputs.scope == 'android'
+    uses: ./.github/workflows/android-release.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    secrets: inherit
 
+  # Runs when every upload path that applies to this tag succeeded; the other scope's
+  # jobs are skipped, which !failure() lets through.
+  publish:
+    name: Publish release
+    needs: [version, create-draft, desktop, homebrew, android]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      SCOPE: ${{ needs.version.outputs.scope }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          sparse-checkout: .github/scripts
 
-      - uses: ./.github/actions/setup-android-build
-        with:
-          cxx-cache-prefix: ndk-release
+      - name: Publish release
+        run: .github/scripts/release/publish.sh "$GITHUB_REF_NAME" "$SCOPE" "$PRERELEASE"
 
-      # The keystore secret itself is scoped to this one step; later steps branch on the
-      # HAWKEYE_UPLOAD_KEYSTORE path this step exports rather than re-reading the secret,
-      # so no other step, including third-party actions, ever sees the keystore. A fork
-      # without secrets skips this step, builds the unsigned APK, and skips Play, which
-      # is exactly the pre-signing behavior.
-      - name: Decode upload keystore
-        if: env.HAS_UPLOAD_KEYSTORE == 'true'
-        env:
-          UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
-        run: |
-          printf '%s' "$UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
-          echo "HAWKEYE_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
-
-      # Unlike the keystore, this has to land inside the tree: the google-services plugin
-      # reads app/google-services.json and nothing else. It is gitignored, and a fork
-      # without the secret skips this step and ships with Crashlytics dormant.
-      - name: Decode Firebase config
-        if: env.HAS_FIREBASE_CONFIG == 'true'
-        env:
-          FIREBASE_CONFIG_B64: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON }}
-        run: printf '%s' "$FIREBASE_CONFIG_B64" | base64 -d > android/app/google-services.json
-
-      - name: Build release APK and AAB
-        working-directory: android
-        env:
-          VERSION: ${{ needs.source-tarball.outputs.version }}
-          HAWKEYE_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
-          HAWKEYE_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
-        run: ./gradlew assembleRelease bundleRelease -PhawkeyeVersionName="$VERSION"
-
-      - name: Verify and stage APK
-        id: apk
-        env:
-          VERSION: ${{ needs.source-tarball.outputs.version }}
-        run: |
-          set -euo pipefail
-          if [ -n "${HAWKEYE_UPLOAD_KEYSTORE:-}" ]; then
-            SRC=$(android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release "$VERSION" --signed)
-            NAME="hawkeye-${VERSION}-android.apk"
-          else
-            SRC=$(android/scripts/verify-release-apk.sh android/app/build/outputs/apk/release "$VERSION")
-            NAME="hawkeye-${VERSION}-android-unsigned.apk"
-          fi
-          cp "$SRC" "$NAME"
-          echo "file=${NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify AAB
-        run: |
-          if [ -n "${HAWKEYE_UPLOAD_KEYSTORE:-}" ]; then
-            android/scripts/verify-release-bundle.sh android/app/build/outputs/bundle/release/app-release.aab --signed
-          else
-            android/scripts/verify-release-bundle.sh android/app/build/outputs/bundle/release/app-release.aab
-          fi
-
-      # Without this, a native crash in the renderer arrives as raw hex addresses. The
-      # unstripped libhawkeye.so only exists in this job's build tree, so the symbols have
-      # to be sent from here, and before the APK is published rather than after, so a
-      # failure stops the release instead of shipping an unsymbolicated one. The service
-      # account is scoped to this step, the only one that consumes it.
-      - name: Upload native symbols to Crashlytics
-        # Both secrets, not just the config: this step runs between verifying the AAB and
-        # publishing the APK, so failing here on a missing service account would strand a
-        # tag half-released. Absent either secret the release simply ships unsymbolicated.
-        if: env.HAS_FIREBASE_CONFIG == 'true' && env.HAS_FIREBASE_SERVICE_ACCOUNT == 'true'
-        working-directory: android
-        env:
-          VERSION: ${{ needs.source-tarball.outputs.version }}
-          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          # This is a second Gradle invocation, and "Decode upload keystore" exported
-          # HAWKEYE_UPLOAD_KEYSTORE through GITHUB_ENV, so it is still set here. :app
-          # configures a signing config whenever that path is present and requires the
-          # matching password and alias, which were scoped to the build step alone, so
-          # without these two the symbol upload dies at configuration time and takes the
-          # APK publish and the Play upload down with it. They stay step-scoped rather
-          # than moving to the job, so no third-party action ever sees them.
-          HAWKEYE_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
-          HAWKEYE_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
-        run: |
-          set -euo pipefail
-          # Trap rather than a trailing rm, so the key is shredded even when the upload
-          # fails and the shell exits early.
-          trap 'rm -f "$RUNNER_TEMP/firebase-sa.json"' EXIT
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-sa.json"
-          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json" \
-            ./gradlew uploadCrashlyticsSymbolFileRelease -PhawkeyeVersionName="$VERSION"
-
-      - name: Upload APK to release
-        run: gh release upload "${{ github.ref_name }}" "${{ steps.apk.outputs.file }}"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # The AAB goes to Google Play only; it is useless to sideloaders, so it is not
-      # attached to the GitHub release. Prerelease tags upload too: rc builds are what
-      # the internal track is for, and the version code scheme orders them correctly.
-      # Promotion beyond internal testing stays manual in the Play Console. The service
-      # account secret is scoped to this step, the only one that consumes it.
-      - name: Upload AAB to Play internal testing
-        if: env.HAS_PLAY_SERVICE_ACCOUNT == 'true'
-        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.px4.hawkeye.android
-          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
-          track: internal
-          status: completed
-
-  # ── Job 3: Update Homebrew tap ─────────────────────────────────────────────
-  update-tap:
-    name: Update Homebrew tap
-    needs: [source-tarball, bottle-arm64]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Update formula in tap
-        env:
-          VERSION: ${{ needs.source-tarball.outputs.version }}
-          TAG: ${{ github.ref_name }}
-          TARBALL_SHA: ${{ needs.source-tarball.outputs.tarball_sha256 }}
-          ARM64_SHA: ${{ needs.bottle-arm64.outputs.bottle_sha256 }}
-          ARM64_TAG: ${{ needs.bottle-arm64.outputs.bottle_tag }}
-          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          git clone https://x-access-token:${TAP_TOKEN}@github.com/PX4/homebrew-px4.git tap
-
-          python3 -c "
-          import os
-          formula = '''class Hawkeye < Formula
-            desc \"Real-time 3D flight visualizer for PX4 with ULog replay and multi-drone analysis\"
-            homepage \"https://github.com/PX4/Hawkeye\"
-            url \"https://github.com/PX4/Hawkeye/releases/download/{tag}/hawkeye-{version}.tar.gz\"
-            sha256 \"{tarball_sha}\"
-            license \"BSD-3-Clause\"
-
-            bottle do
-              root_url \"https://github.com/PX4/Hawkeye/releases/download/{tag}\"
-              sha256 cellar: :any_skip_relocation, {arm64_tag}: \"{arm64_sha}\"
-            end
-
-            depends_on \"cmake\" => :build
-
-            def install
-              system \"cmake\", \"-S\", \".\", \"-B\", \"build\",
-                     \"-DCMAKE_BUILD_TYPE=Release\",
-                     \"-DHOMEBREW_ALLOW_FETCHCONTENT=ON\",
-                     *std_cmake_args
-              system \"cmake\", \"--build\", \"build\"
-              system \"cmake\", \"--install\", \"build\", \"--prefix\", prefix
-            end
-
-            test do
-              assert_predicate bin/\"hawkeye\", :executable?
-            end
-          end
-          '''.format(
-              tag=os.environ['TAG'],
-              version=os.environ['VERSION'],
-              tarball_sha=os.environ['TARBALL_SHA'],
-              arm64_sha=os.environ['ARM64_SHA'],
-              arm64_tag=os.environ['ARM64_TAG'],
-          )
-          with open('tap/Formula/hawkeye.rb', 'w') as f:
-              f.write(formula)
-          "
-
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/hawkeye.rb
-          git commit -m "hawkeye ${VERSION}"
-          git push
+  # Desktop only, and only after publish: the formula points at the release's public
+  # download URLs, which do not resolve while it is a draft.
+  homebrew-tap:
+    name: Homebrew tap
+    needs: [version, desktop, homebrew, publish]
+    if: needs.version.outputs.scope == 'desktop' && needs.publish.result == 'success'
+    uses: ./.github/workflows/homebrew-tap.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      tarball_sha256: ${{ needs.desktop.outputs.tarball_sha256 }}
+      bottle_sha256: ${{ needs.homebrew.outputs.bottle_sha256 }}
+      bottle_tag: ${{ needs.homebrew.outputs.bottle_tag }}
+    secrets:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

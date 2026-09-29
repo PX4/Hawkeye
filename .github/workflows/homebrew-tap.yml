@@ -1,0 +1,47 @@
+name: Homebrew tap
+
+# Called by release.yml for desktop-v* tags, only after the release is published: the
+# formula it pushes to PX4/homebrew-px4 points at the release's public download URLs,
+# which do not resolve while the release is still a draft.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version, the tag with its prefix stripped
+        required: true
+        type: string
+      tarball_sha256:
+        description: SHA-256 of the source tarball on the release
+        required: true
+        type: string
+      bottle_sha256:
+        description: SHA-256 of the arm64 bottle on the release
+        required: true
+        type: string
+      bottle_tag:
+        description: Homebrew bottle tag the bottle was built for, such as arm64_sonoma
+        required: true
+        type: string
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  update-tap:
+    name: Update Homebrew tap
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Update formula in tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: >-
+          .github/scripts/homebrew/update-tap.sh "${{ github.ref_name }}" "${{ inputs.version }}"
+          "${{ inputs.tarball_sha256 }}" "${{ inputs.bottle_tag }}" "${{ inputs.bottle_sha256 }}"

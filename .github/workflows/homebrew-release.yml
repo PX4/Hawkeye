@@ -1,0 +1,68 @@
+name: Homebrew release
+
+# Called by release.yml for desktop-v* tags, after desktop-release.yml has uploaded the
+# source tarball to the draft release. Builds the macOS arm64 bottle from that tarball and
+# uploads it to the draft. The tap itself is homebrew-tap.yml, which release.yml runs only
+# after publishing, since the formula points at public download URLs.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version, the tag with its prefix stripped
+        required: true
+        type: string
+      tarball_sha256:
+        description: SHA-256 of the source tarball on the release
+        required: true
+        type: string
+    outputs:
+      bottle_sha256:
+        description: SHA-256 of the uploaded bottle
+        value: ${{ jobs.bottle-arm64.outputs.bottle_sha256 }}
+      bottle_tag:
+        description: Homebrew bottle tag the bottle was built for, such as arm64_sonoma
+        value: ${{ jobs.bottle-arm64.outputs.bottle_tag }}
+
+permissions:
+  contents: write
+
+jobs:
+  bottle-arm64:
+    name: Bottle (arm64)
+    runs-on: macos-14
+    outputs:
+      bottle_sha256: ${{ steps.bottle.outputs.sha256 }}
+      bottle_tag: ${{ steps.bottle.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
+      # Draft assets are not publicly downloadable, so the release URL the published
+      # formula uses would 404 here. The bottle is built from a local copy instead, which
+      # brew still checks against the same sha256.
+      - name: Download source tarball from draft release
+        run: gh release download "${{ github.ref_name }}" --pattern "hawkeye-${{ inputs.version }}.tar.gz" --dir "$RUNNER_TEMP"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up tap with formula
+        env:
+          VERSION: ${{ inputs.version }}
+          TARBALL_SHA: ${{ inputs.tarball_sha256 }}
+        run: |
+          mkdir -p "$(brew --repo)/Library/Taps/PX4/homebrew-px4/Formula"
+          .github/scripts/homebrew/render-formula.py --url "file://$RUNNER_TEMP/hawkeye-$VERSION.tar.gz" --sha256 "$TARBALL_SHA" > "$(brew --repo)/Library/Taps/PX4/homebrew-px4/Formula/hawkeye.rb"
+
+      - name: Build bottle
+        run: brew install --build-bottle PX4/px4/hawkeye
+
+      - name: Package bottle
+        id: bottle
+        run: .github/scripts/homebrew/package-bottle.sh "${{ github.ref_name }}"
+
+      - name: Upload bottle to release
+        run: gh release upload "${{ github.ref_name }}" "${{ steps.bottle.outputs.file }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
