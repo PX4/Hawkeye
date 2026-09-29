@@ -363,13 +363,15 @@ Keep the keystore out of the repo. Reusing the same key across builds is what le
 
 Three CI jobs build this app:
 
-| Workflow      | Job             | Variant | Runs on                                        |
-| ------------- | --------------- | ------- | ---------------------------------------------- |
-| `android.yml` | `build`         | Debug   | Pull requests, pushes to main, manual dispatch |
-| `android.yml` | `release-build` | Release | Pushes to main, manual dispatch                |
-| `release.yml` | `android`       | Release | `v*` tag pushes only                           |
+| Workflow              | Job             | Variant | Runs on                                            |
+| --------------------- | --------------- | ------- | -------------------------------------------------- |
+| `android.yml`         | `build`         | Debug   | Pull requests, pushes to main, manual dispatch     |
+| `android.yml`         | `release-build` | Release | Pushes to main, manual dispatch                    |
+| `android-release.yml` | `android`       | Release | `android-v*` tag pushes, called from `release.yml` |
 
 `release-build` runs the same `assembleRelease` and `bundleRelease` tasks and the same `scripts/verify-release-apk.sh` and `scripts/verify-release-bundle.sh` checks the release uses, including the signed path when the keystore secrets are present, so a break shows up on a normal merge rather than on a live tag. It is skipped on pull requests to keep review turnaround fast, and can be triggered from a branch with `gh workflow run android.yml --ref <branch>`.
+
+The app releases on its own `android-v<version>` tags, separately from the desktop `desktop-v<version>` tags; see [Android releases](../docs/developer/releasing.md#android-releases) for what a tag publishes and how its version code is derived.
 
 All three jobs share `.github/actions/setup-android-build` for the toolchain install and caching, so the NDK and CMake versions are pinned in one place.
 

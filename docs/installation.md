@@ -42,7 +42,8 @@ To launch from any terminal, add the extracted folder to your `PATH`.
 
 ## Android
 
-Download `hawkeye-<version>-android.apk` from the [Hawkeye releases page](https://github.com/PX4/Hawkeye/releases/latest) and install it.
+Download `hawkeye-<version>-android.apk` from the newest [Android release](https://github.com/PX4/Hawkeye/releases?q=android-v&expanded=true) and install it.
+Android ships separately from the desktop builds, as `Android vX.Y.Z` releases that never take the Latest slot, so the APK is not on the release marked Latest.
 The APK is signed and installs as downloaded; Android asks you to allow installs from your browser or file manager the first time.
 
 The APK bundles both `arm64-v8a` and `x86_64`, so it runs on 64-bit ARM devices and in the Android emulator.

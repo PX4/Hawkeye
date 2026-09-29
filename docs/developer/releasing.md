@@ -1,8 +1,22 @@
 # Releasing
 
-Releases are cut by pushing a `v*` tag.
-`.github/workflows/release.yml` is the only thing that reacts to that tag, and it produces every published artifact.
+Releases are cut by pushing a tag, and desktop and Android release independently:
+
+| Tag                  | Example          | What ships                                                                         |
+| -------------------- | ---------------- | ---------------------------------------------------------------------------------- |
+| `desktop-v<version>` | `desktop-v1.1.0` | Source tarball, macOS bottle, Linux `.deb`s, Windows zip, and the Homebrew tap     |
+| `android-v<version>` | `android-v1.0.1` | The Android APK on a GitHub release, and the AAB to the Google Play internal track |
+
+Neither kind ships anything from the other, and each has its own version sequence.
+A bare `v<version>` tag, which released everything at once up to `v1.0.0`, is rejected: the workflow fails in its first job with a pointer to the two prefixes, before anything is published.
+
+`.github/workflows/release.yml` is the only workflow that reacts to these tags. It works out which kind of release the tag is, creates the release as a draft, calls the workflows in the same directory that build and upload every artifact, and publishes the release once they all succeed.
 No version number is stored anywhere in the repository; the tag is the single source of truth.
+To see what a tag would do without pushing it, run the script the workflow's first job runs:
+
+```sh
+.github/scripts/release/get-release-versions.sh android-v1.0.1-rc1
+```
 
 ::: info
 The release workflow has no trigger other than the tag push, so it cannot be dry-run.
@@ -14,43 +28,103 @@ Before tagging, exercise the build with the pre-tag check described in [Checking
 Tag the commit and push the tag:
 
 ```sh
-git tag -a v0.4.0 -m "v0.4.0"
-git push origin v0.4.0
+git tag -a desktop-v1.1.0 -m "desktop-v1.1.0"
+git push origin desktop-v1.1.0
 ```
 
-The workflow creates the GitHub release immediately, then each platform job uploads its artifact as it finishes.
-The release is published rather than drafted, because the macOS bottle build needs the source tarball URL to be publicly fetchable.
+An Android release is the same with the `android-v` prefix.
 
-A tag carrying a suffix, such as `v0.4.0-rc2`, is published as a prerelease; a bare `vMAJOR.MINOR.PATCH` tag is published as a full release.
+Every release goes through the same lifecycle, owned by `release.yml`: it creates a draft release, the called workflows build and upload artifacts to that draft, and `release.yml` publishes it only once every upload has succeeded.
+Nobody sees a release until it is complete, and a failed run leaves an invisible draft rather than a public release with assets missing.
+
+| Workflow               | Job            | Runs for                                  | Does                                                                                                     |
+| ---------------------- | -------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `release.yml`          | `version`      | every tag                                 | Runs `.github/scripts/release/get-release-versions.sh` to derive the scope, version, and prerelease flag |
+| `release.yml`          | `create-draft` | every valid tag                           | Creates the draft release with its title, generated notes, and prerelease flag                           |
+| `desktop-release.yml`  | all            | `desktop-v*`                              | Builds and uploads the source tarball, `.deb`s, and Windows zip                                          |
+| `homebrew-release.yml` | `bottle-arm64` | `desktop-v*`, after `desktop-release.yml` | Builds and uploads the macOS bottle                                                                      |
+| `android-release.yml`  | `android`      | `android-v*`                              | Builds, verifies, and uploads the APK, and uploads the AAB to Google Play                                |
+| `release.yml`          | `publish`      | every valid tag, after all uploads        | Publishes the draft and sets whether it is Latest                                                        |
+| `homebrew-tap.yml`     | `update-tap`   | `desktop-v*`, after `publish`             | Points the Homebrew formula at the published release                                                     |
+
+The called workflows only run when `release.yml` calls them (`workflow_call`), so none can be triggered on its own by a tag, and none creates, edits, or publishes the release itself.
+Secrets are passed only where needed: `android-release.yml` inherits the repository secrets for signing, Crashlytics, and Play, `homebrew-tap.yml` gets only `HOMEBREW_TAP_TOKEN`, and the others use nothing beyond the workflow's `GITHUB_TOKEN`.
+
+The workflows themselves only wire jobs together.
+Any step longer than two lines lives in `.github/scripts/` instead, where it can be read, linted, and run locally.
+They are grouped by the pipeline that owns them, so each directory maps to a workflow:
+
+| Directory                   | Used by                                    | Scripts                                                                                                                                               |
+| --------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/scripts/release/`  | `release.yml`                              | `get-release-versions.sh`, `create-draft.sh`, `publish.sh`                                                                                            |
+| `.github/scripts/desktop/`  | `desktop-release.yml`                      | `make-source-tarball.sh`, `install-linux-deps.sh`, `configure-linux.sh`, `smoke-test-linux-deb.sh`, `stage-windows-zip.ps1`, `smoke-test-windows.ps1` |
+| `.github/scripts/homebrew/` | `homebrew-release.yml`, `homebrew-tap.yml` | `render-formula.py`, `package-bottle.sh`, `update-tap.sh`                                                                                             |
+| `.github/scripts/android/`  | `android-release.yml`                      | `stage-apk.sh`, `upload-crashlytics-symbols.sh`                                                                                                       |
+
+A new script goes in the directory of the workflow that calls it; one shared by two workflows of the same pipeline, like `render-formula.py`, goes in that pipeline's directory.
+The APK and AAB verification scripts stay in `android/scripts/`, because `android.yml` runs them on every merge too and they belong to the app rather than to the release.
+Those scripts are Bash when they mostly drive other tools (`gh`, `tar`, `apt`, `cmake`, `brew`, `git`, Gradle), Python for `homebrew/render-formula.py`, which renders the one formula template both the bottle build and the tap use, and PowerShell for the Windows steps.
+
+A tag carrying a suffix, such as `desktop-v1.1.0-rc1`, is published as a prerelease; a bare `MAJOR.MINOR.PATCH` version is published as a full release.
 `gh release create` does not infer this from the tag, so the workflow derives it from the version string and passes `--prerelease` explicitly.
-This is what keeps an rc off the repository's "Latest release" slot, which is where the README download links and anyone landing on the releases page are pointed.
+Only a final desktop release is marked Latest when published, which is where the README's desktop download links and anyone landing on the releases page are pointed.
 
-## Release artifacts
+### When a release run fails
 
-A tag produces six assets:
+A failed upload leaves the release as a draft, visible only to maintainers on the releases page.
+Fix the cause and use **Re-run failed jobs** on the run; the skipped jobs downstream of the failure, including `publish`, run once it passes.
+Re-running the whole workflow works too: `create-draft` reuses the existing draft, and every upload replaces an asset of the same name.
+`create-draft` refuses to touch a release that is already published, so a stray re-run cannot rewrite a shipped release.
 
-| Artifact                                       | Platform    | Job              |
-| ---------------------------------------------- | ----------- | ---------------- |
-| `hawkeye-<version>.tar.gz`                     | Source      | `source-tarball` |
-| `hawkeye-<version>.arm64_sonoma.bottle.tar.gz` | macOS arm64 | `bottle-arm64`   |
-| `hawkeye_<version>_amd64.deb`                  | Linux amd64 | `deb-amd64`      |
-| `hawkeye_<version>_arm64.deb`                  | Linux arm64 | `deb-arm64`      |
-| `hawkeye-<version>-windows-x64.zip`            | Windows x64 | `windows-x64`    |
-| `hawkeye-<version>-android.apk`                | Android     | `android`        |
+To abandon a release instead, delete the draft with `gh release delete <tag>` and, if the tag itself was wrong, the tag with `git push --delete origin <tag>`.
+
+Google Play is the exception to "nothing is public until publish": the Android workflow uploads the AAB to the internal track before the GitHub release is published, so an Android run that fails after that step has already reached internal testers.
+
+## Desktop releases
+
+A `desktop-v*` tag produces a release titled `Desktop v<version>` with five assets:
+
+| Artifact                                       | Platform    | Workflow               | Job              |
+| ---------------------------------------------- | ----------- | ---------------------- | ---------------- |
+| `hawkeye-<version>.tar.gz`                     | Source      | `desktop-release.yml`  | `source-tarball` |
+| `hawkeye-<version>.arm64_sonoma.bottle.tar.gz` | macOS arm64 | `homebrew-release.yml` | `bottle-arm64`   |
+| `hawkeye_<version>_amd64.deb`                  | Linux amd64 | `desktop-release.yml`  | `deb-amd64`      |
+| `hawkeye_<version>_arm64.deb`                  | Linux arm64 | `desktop-release.yml`  | `deb-arm64`      |
+| `hawkeye-<version>-windows-x64.zip`            | Windows x64 | `desktop-release.yml`  | `windows-x64`    |
 
 The `.deb` files use Debian policy naming with underscores, which is why the install command in [Installation](../installation.md) globs `hawkeye_*.deb` and not `hawkeye-*.deb`.
 
-Every platform job depends only on `source-tarball`, so one platform failing does not block the release or the other artifacts.
-A failed job leaves the release published with that asset missing; re-upload it by hand with `gh release upload <tag> <file>` once the cause is fixed.
+Inside `desktop-release.yml`, every platform job depends only on `source-tarball`, so one platform failing does not stop the others from building and uploading; it does keep the release a draft until that job is re-run.
 
-A seventh job, `update-tap`, is the exception.
-It depends on `bottle-arm64` as well as `source-tarball`, and it pushes the updated formula to the [PX4/homebrew-px4](https://github.com/PX4/homebrew-px4) tap.
-If the bottle build fails, the tap keeps pointing at the previous version while the GitHub release advertises the new one, so `brew install hawkeye` silently serves the old build until the job is re-run.
-That is the only failure in this workflow with a user-visible consequence beyond a missing asset.
+### Homebrew
+
+Homebrew is split in two, around the publish step.
+
+`homebrew-release.yml` runs after all of `desktop-release.yml` succeeds and takes the source tarball's checksum from it.
+Draft assets are not publicly downloadable, so its `bottle-arm64` job downloads the tarball from the draft with `gh release download` and builds the bottle from that local copy, which brew still verifies against the same checksum.
+
+`homebrew-tap.yml` runs only after `publish`, because the formula it pushes to [PX4/homebrew-px4](https://github.com/PX4/homebrew-px4) points at the release's public download URLs, which do not resolve while the release is a draft.
+The tap therefore only ever moves to a complete, published release.
+If `update-tap` itself fails, the release is public but `brew install hawkeye` keeps serving the previous version until that job is re-run; this is the one failure with a user-visible consequence.
+
+The formula points at the source tarball rather than GitHub's automatic source archive for two reasons: the automatic archive leaves out the `lib/c_library_v2` submodule the build needs, and its checksum is not guaranteed to stay the same, while the formula pins a `sha256`.
+
+## Android releases
+
+An `android-v*` tag runs only `android-release.yml` between the draft and publish steps.
+It builds and verifies the APK and AAB, uploads native symbols to Crashlytics, uploads `hawkeye-<version>-android.apk` to the draft, and sends the AAB to Google Play; see [Google Play internal testing](#google-play-internal-testing).
+The release is titled `Android v<version>`.
+
+`publish` passes `--latest=false` for Android releases, so they never take the Latest slot.
+Latest belongs to the last desktop release, because that is where the README's desktop download links go.
+The Android install instructions point at the releases page instead, filtered to `android-v` tags.
+
+Android versions only have to increase from one `android-v*` tag to the next; desktop versions do not affect them.
+Google Play refuses any `versionCode` it has already seen or that is lower than the current one, and Play already holds `1.0.0` from the `v1.0.0` tag, so the first Android release under this scheme has to be `android-v1.0.1` or higher.
 
 ## How the version is derived
 
-The `source-tarball` job strips the leading `v` from the tag and exports the result, and every other job reads it from there.
+The `version` job strips the `desktop-v` or `android-v` prefix from the tag and exports the result, and every other job reads it from there.
 The two build systems receive it differently:
 
 | Build system | How it receives the version      |
@@ -60,12 +134,12 @@ The two build systems receive it differently:
 
 `android/app/build.gradle.kts` computes the Android `versionCode` from that string as `major * 100000000 + minor * 100000 + patch * 100 + rc`, so CI passes one value and Gradle derives the other:
 
-| Tag          | versionName | versionCode |
-| ------------ | ----------- | ----------- |
-| `v0.4.0-rc1` | `0.4.0-rc1` | 400001      |
-| `v0.4.0`     | `0.4.0`     | 400099      |
-| `v1.2.3`     | `1.2.3`     | 100200399   |
-| no tag       | `0.0.0-dev` | 1           |
+| Tag                  | versionName | versionCode |
+| -------------------- | ----------- | ----------- |
+| `android-v0.4.0-rc1` | `0.4.0-rc1` | 400001      |
+| `android-v0.4.0`     | `0.4.0`     | 400099      |
+| `android-v1.2.3`     | `1.2.3`     | 100200399   |
+| no tag               | `0.0.0-dev` | 1           |
 
 The rc component is what makes prerelease tags safe: a final release takes 99, an `rcN` suffix takes N (1 through 98), and the `dev` and `ci` fallbacks take 0, so every rc sorts below its final release, above the previous release, and each code can be uploaded to Google Play exactly once.
 A local build with no `-PhawkeyeVersionName` falls back to `0.0.0-dev`, so debug builds need no extra flags.
