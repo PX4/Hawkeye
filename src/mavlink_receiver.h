@@ -48,6 +48,11 @@ typedef struct {
     uint8_t sender_addr[16];     // sockaddr_in stored as opaque bytes
     bool logged_rx_error;        // socket errors are logged once, not once per frame
     bool logged_tx_error;
+    // A SIH sim streams HIL_STATE_QUATERNION (simulator ground truth). Once it is seen it
+    // is the only pose source: the standard EKF pose messages are ignored and, if we had
+    // requested them, stopped again. Mixing the two makes the vehicle jitter.
+    bool hil_seen;
+    bool pose_streams_requested; // SET_MESSAGE_INTERVAL sent for the standard pose stream
 } mavlink_receiver_t;
 
 // Initialize UDP socket on given port with MAVLink parse channel. Returns 0 on success.
