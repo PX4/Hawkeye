@@ -25,6 +25,9 @@ static void ulog_poll(data_source_t *ds, float dt) {
     ds->playback.takeoff_time_s = ctx->takeoff_time_s;
     ds->playback.takeoff_detected = ctx->takeoff_detected;
     ds->playback.home_from_topic = ctx->home_from_topic;
+    ds->playback.global_pos = ctx->has_global_pos;
+    // a seek clears the position time, so the stale position before the first message does not count as local
+    ds->playback.local_pos = ctx->last_pos_usec > 0 && !ctx->has_global_pos;
     ds->playback.time_offset_s = (float)ctx->time_offset_s;
     ds->playback.mode_changes = (const playback_mode_change_t *)ctx->mode_changes;
     ds->playback.mode_change_count = ctx->mode_change_count;

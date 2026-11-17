@@ -402,6 +402,13 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
             ctx->home_rejected = true;
         }
 
+        // Local frames before the EKF reference hang from home instead of 0, 0. The log's own reference replaces it.
+        if (ctx->home.valid) {
+            ctx->ref_lat = ctx->home.lat * 1e-7;
+            ctx->ref_lon = ctx->home.lon * 1e-7;
+            ctx->ref_alt = ctx->home.alt * 1e-3f;
+        }
+
         // Store CUSUM results
         ctx->takeoff_detected = cusum_triggered;
         ctx->takeoff_time_s = cusum_triggered ? cusum_trigger_time : 0.0f;
@@ -576,6 +583,13 @@ void ulog_replay_seek(ulog_replay_ctx_t *ctx, float target_s) {
     // global_pos is sparse (1-5 Hz) relative to the seek granularity (~20ms).
     ulog_parser_seek_early(&ctx->parser, target_usec);
     ctx->wall_accum = (double)target_s;  // wall_accum stays in shared clock space
+
+    // The position source is re-derived from the messages at the seek point, so a seek into the part of a log
+    // before its first global position uses the local frame instead of holding the last global position.
+    ctx->has_global_pos = false;
+    ctx->prev_gpos_usec = 0;
+    ctx->last_pos_usec = 0;
+    ctx->gpos_vx = ctx->gpos_vy = ctx->gpos_vz = 0.0f;
 
     // Update current_nav_state for the seek position
     ctx->current_nav_state = 0xFF;

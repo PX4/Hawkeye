@@ -336,11 +336,11 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Compute shared NED origin for multi-drone replay.
-    // ref_lat_rad/ref_lon_rad/min_alt persist for runtime mode switching (P key).
+    // Replay origin from the prescanned home, set at load. One log takes its own home, several share the first
+    // home found and the lowest altitude. ref_lat_rad/ref_lon_rad/min_alt persist for runtime mode switching (P key).
     double ref_lat_rad = 0.0, ref_lon_rad = 0.0, min_alt = 0.0;
     int ref_idx = -1;
-    if (is_replay && num_replay_files > 1) {
+    if (is_replay && num_replay_files >= 1) {
         for (int i = 0; i < num_replay_files; i++) {
             if (sources[i].home.valid) {
                 ref_idx = i;
@@ -380,7 +380,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (ref_idx >= 0)
-            printf("Multi-drone origin: lat=%.6f lon=%.6f alt=%.1f (min datum)\n",
+            printf("Replay origin: lat=%.6f lon=%.6f alt=%.1f\n",
                    ref_lat_rad * (180.0 / M_PI), ref_lon_rad * (180.0 / M_PI), min_alt);
     }
 
@@ -422,6 +422,12 @@ int main(int argc, char *argv[]) {
     int prev_selected = 0;
     bool was_connected[MAX_VEHICLES];
     memset(was_connected, 0, sizeof(was_connected));
+    bool was_origin_set[MAX_VEHICLES];
+    memset(was_origin_set, 0, sizeof(was_origin_set));
+    bool origin_toast_due[MAX_VEHICLES];  // the HUD shows one toast at a time, so a second drone's waits its turn
+    memset(origin_toast_due, 0, sizeof(origin_toast_due));
+    bool local_pos[MAX_VEHICLES];  // the replay's position is from the local frame, before the log's first global position
+    memset(local_pos, 0, sizeof(local_pos));
     Vector3 last_pos[MAX_VEHICLES];
     memset(last_pos, 0, sizeof(last_pos));
     bool show_hud = true;
@@ -516,7 +522,8 @@ int main(int argc, char *argv[]) {
                 vehicle_reset_trail(&vehicles[i]);
                 if (sources[i].mav_type != 0)
                     vehicle_set_type(&vehicles[i], sources[i].mav_type);
-                if (!origin_specified && vehicle_count == 1) {
+                // a replay's origin latches once from the log and survives a restart
+                if (!is_replay && !origin_specified && vehicle_count == 1) {
                     vehicles[i].origin_set = false;
                     vehicles[i].origin_wait_count = 0;
                 }
@@ -526,6 +533,35 @@ int main(int argc, char *argv[]) {
             vehicles[i].current_time = sources[i].playback.position_s;
             vehicle_update(&vehicles[i], &sources[i].state, &sources[i].home);
             vehicles[i].sysid = sources[i].sysid;
+
+            if (vehicles[i].origin_set && !was_origin_set[i]) origin_toast_due[i] = true;
+            was_origin_set[i] = vehicles[i].origin_set;
+            if (origin_toast_due[i] && hud.toast_timer <= 0.0f) {
+                origin_toast_due[i] = false;
+                bool shared = is_replay && num_replay_files > 1 && !ghost_mode && !ghost_mode_grid
+                              && vehicle_tier[i] != 3;
+                bool from_home = is_replay ? vehicle_tier[i] != 3 : sources[i].home.valid;
+                char msg[128];
+                if (shared)
+                    snprintf(msg, sizeof(msg), "SHARED ORIGIN  DRONE %d HOME  %.5f %.5f  LOWEST HOME %.1f m MSL",
+                             ref_idx + 1, vehicles[i].lat0 * (180.0 / M_PI), vehicles[i].lon0 * (180.0 / M_PI),
+                             vehicles[i].alt0);
+                else
+                    snprintf(msg, sizeof(msg), "DRONE %d: ORIGIN FROM %s  %.5f %.5f  %.1f m MSL", i + 1,
+                             from_home ? "HOME" : "FIRST POSITION",
+                             vehicles[i].lat0 * (180.0 / M_PI), vehicles[i].lon0 * (180.0 / M_PI), vehicles[i].alt0);
+                // the shared toast is shown once, in the color of the drone whose home it came from
+                if (!shared || i == ref_idx)
+                    hud_toast_color(&hud, msg, 4.0f, vehicles[shared ? ref_idx : i].color);
+            }
+
+            bool local_now = is_replay && vehicle_tier[i] != 3 && sources[i].playback.local_pos;
+            if (local_pos[i] && sources[i].playback.global_pos) {
+                char msg[64];
+                snprintf(msg, sizeof(msg), "DRONE %d: GPS LOCK  POSITION FROM GPS", i + 1);
+                hud_toast_color(&hud, msg, 4.0f, vehicles[i].color);
+            }
+            local_pos[i] = local_now;
 
             // Placeholder: show model at origin while waiting for position data.
             if (sources[i].connected && !vehicles[i].active) {
@@ -1343,7 +1379,7 @@ int main(int argc, char *argv[]) {
             // HUD
             if (show_hud) {
                 bool has_awaiting_gps = vehicles[selected].active &&
-                    !vehicles[selected].origin_set && sources[selected].home.valid;
+                    ((!vehicles[selected].origin_set && sources[selected].home.valid) || local_pos[selected]);
                 hud_marker_data_t all_user_md[MAX_VEHICLES] = {0};
                 hud_marker_data_t all_sys_md[MAX_VEHICLES] = {0};
                 for (int i = 0; i < vehicle_count; i++) {
