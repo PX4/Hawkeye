@@ -522,6 +522,8 @@ void vehicle_init_ex(vehicle_t *v, int model_idx, Shader lighting_shader, int tr
 
 void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_t *home) {
     if (!state->valid) return;
+    // a position of exactly 0, 0 is a frame with no reference yet, not a place
+    if (state->lat == 0 && state->lon == 0) return;
 
     double lat = state->lat * 1e-7 * (M_PI / 180.0);
     double lon = state->lon * 1e-7 * (M_PI / 180.0);

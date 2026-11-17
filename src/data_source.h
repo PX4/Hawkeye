@@ -30,6 +30,8 @@ typedef struct {
     float takeoff_time_s;       // seconds from log start when takeoff detected (0 = not detected)
     bool  takeoff_detected;     // true if CUSUM found a clear takeoff event
     bool  home_from_topic;      // true = home set from home_position topic (Tier 1)
+    bool  global_pos;           // true once the position comes from a global position message
+    bool  local_pos;            // true while the position comes from the local frame, after a position arrived
     float correlation;          // Pearson r vs reference drone (NAN = N/A)
     float rmse;                 // RMS position error vs reference (m) (NAN = N/A)
     float time_offset_s;        // alignment offset for display

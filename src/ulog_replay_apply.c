@@ -122,7 +122,8 @@ void ulog_apply_lpos(ulog_replay_ctx_t *ctx, const ulog_lpos_event_t *ev) {
         // meaningful global position. z-only (baro) without a reference
         // can't yield valid lat/lon. Ref capture is handled by the caller
         // (native: inline in process_message; WASM: extractor pre-pass).
-        bool has_pos = (ev->x != 0.0f || ev->y != 0.0f) || ctx->ref_set;
+        // a prescanned home seeds the reference at load, so a local frame with no reference yet hangs from home
+        bool has_pos = (ev->x != 0.0f || ev->y != 0.0f) || ctx->ref_set || ctx->home.valid;
 
         if (has_pos) {
             ulog_local_to_global(ctx->ref_lat, ctx->ref_lon, ctx->ref_alt,

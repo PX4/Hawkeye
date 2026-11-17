@@ -49,7 +49,7 @@ typedef struct {
     float scale_mul;
 
     // Toast notification (fades in/out above timeline)
-    char toast_text[64];
+    char toast_text[128];
     float toast_timer;  // seconds remaining (0 = hidden)
     float toast_total;  // total duration for fade calc
     Color toast_color;  // custom color (0,0,0,0 = use default)
