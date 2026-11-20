@@ -175,6 +175,63 @@ bool dem_sample(const dem_grid_t *g, double lat, double lon, float *z) {
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+// the built mesh's band scale, its cell size and the contour label anchors
+static struct {
+    float zmin, zmax, ymin, band_m, cell_m;
+    dem_label_t *label; int nlabel;
+} built;
+
+// marching squares, the two edges each case joins, edges 0 north 1 east 2 south 3 west, corners NW NE SE SW
+static const signed char ms_edges[16][4] = {
+    {-1, -1, -1, -1}, {3, 0, -1, -1}, {0, 1, -1, -1}, {3, 1, -1, -1},
+    {1, 2, -1, -1},   {3, 0, 1, 2},   {0, 2, -1, -1}, {3, 2, -1, -1},
+    {2, 3, -1, -1},   {0, 2, -1, -1}, {0, 1, 2, 3},   {1, 2, -1, -1},
+    {1, 3, -1, -1},   {0, 1, -1, -1}, {3, 0, -1, -1}, {-1, -1, -1, -1},
+};
+
+// where the contour values are written, one per band edge per 400 m square, traced by marching squares
+static void labels_build(const Vector3 *p, const unsigned char *fake, int cols, int rows, float zmin, float band_m,
+                         double alt0) {
+    free(built.label);
+    built.label = NULL; built.nlabel = 0;
+    int lcap = 0;
+    // one label per level per 400 m square of ground
+    const float lbl_m = 400.f;
+    // the square grid spans the mesh itself, rows are further apart than columns away from the equator
+    const float x0 = p[0].x, z0 = p[0].z;
+    const int lx = (int)((p[cols - 1].x - x0) / lbl_m) + 2, lz = (int)((p[(rows - 1) * cols].z - z0) / lbl_m) + 2;
+    unsigned char *taken = calloc((size_t)9 * lx * lz, 1);
+    for (int k = 1; k < 10 && taken; k++) {
+        const float iso = zmin + k * band_m - (float)alt0;
+        for (int r = 0; r + 1 < rows; r++) {
+            for (int c = 0; c + 1 < cols; c++) {
+                const Vector3 q[4] = {p[r * cols + c], p[r * cols + c + 1], p[(r + 1) * cols + c + 1], p[(r + 1) * cols + c]};
+                if (isnan(q[0].y) || isnan(q[1].y) || isnan(q[2].y) || isnan(q[3].y)) continue;
+                if (fake[r * cols + c] | fake[r * cols + c + 1] | fake[(r + 1) * cols + c + 1] | fake[(r + 1) * cols + c]) continue;
+                int code = (q[0].y > iso) | (q[1].y > iso) << 1 | (q[2].y > iso) << 2 | (q[3].y > iso) << 3;
+                if (code == 0 || code == 15) continue;
+                Vector3 e[4];
+                for (int i = 0; i < 4; i++) {
+                    Vector3 a = q[i], b = q[(i + 1) & 3];
+                    e[i] = Vector3Lerp(a, b, (iso - a.y) / (b.y - a.y));
+                }
+                for (int s = 0; s < 4 && ms_edges[code][s] >= 0; s += 2) {
+                    Vector3 mid = Vector3Lerp(e[ms_edges[code][s]], e[ms_edges[code][s + 1]], 0.5f);
+                    size_t key = ((size_t)(k - 1) * lz + (size_t)((mid.z - z0) / lbl_m)) * lx + (size_t)((mid.x - x0) / lbl_m);
+                    if (taken[key]) continue;
+                    taken[key] = 1;
+                    if (built.nlabel == lcap) {
+                        lcap = lcap ? lcap * 2 : 256;
+                        built.label = realloc(built.label, (size_t)lcap * sizeof *built.label);
+                    }
+                    built.label[built.nlabel++] = (dem_label_t){mid, zmin + k * band_m, k};
+                }
+            }
+        }
+    }
+    free(taken);
+}
+
 bool dem_build_model(const dem_grid_t *g, double lat0_rad, double lon0_rad, double alt0,
                      float radius_m, Model *out) {
     const double lat0 = lat0_rad * 180.0 / M_PI, lon0 = lon0_rad * 180.0 / M_PI;
@@ -288,6 +345,9 @@ bool dem_build_model(const dem_grid_t *g, double lat0_rad, double lon0_rad, doub
     mesh.vertexCount = quads * 6;
     mesh.vertices = MemAlloc((unsigned)mesh.vertexCount * 3 * sizeof(float));
     mesh.colors = MemAlloc((unsigned)mesh.vertexCount * 4);
+    // ten bands across the drawn ground
+    const float band_m = fmaxf(zmax - zmin, 1e-3f) / 10.f;
+    built.zmin = zmin; built.zmax = zmax; built.ymin = zmin - (float)alt0; built.band_m = band_m; built.cell_m = step_m * SUB;
     int v = 0;
     for (int r = 0; r + 1 < rows; r++) {
         for (int c = 0; c + 1 < cols; c++) {
@@ -296,10 +356,13 @@ bool dem_build_model(const dem_grid_t *g, double lat0_rad, double lon0_rad, doub
             if (isnan(p[idx[0]].y) || isnan(p[idx[1]].y) || isnan(p[idx[2]].y) || isnan(p[idx[5]].y)) continue;
             for (int k = 0; k < 6; k++, v++) {
                 memcpy(mesh.vertices + v * 3, &p[idx[k]], 3 * sizeof(float));
+                // rgb the shade, alpha zero on filled ground so the shader gives it no band
                 memcpy(mesh.colors + v * 4, &shade[idx[k]], 4);
+                mesh.colors[v * 4 + 3] = fake[idx[k]] ? 0 : 255;
             }
         }
     }
+    labels_build(p, fake, cols, rows, zmin, band_m, alt0);
     free(p);
     free(shade);
     free(fake);
@@ -308,3 +371,23 @@ bool dem_build_model(const dem_grid_t *g, double lat0_rad, double lon0_rad, doub
     printf("dem: drew %d x %d cells, %d triangles, ground %.1f to %.1f m\n", cols, rows, mesh.triangleCount, zmin, zmax);
     return true;
 }
+
+// the ramp at t in [0, 1], linear between its stops
+static Color ramp_at(const Color *stops, float t) {
+    float u = Clamp(t, 0.f, 1.f) * (THEME_ELEV_RAMP_STOPS - 1);
+    int i = (int)fminf(u, THEME_ELEV_RAMP_STOPS - 2);
+    float f = u - (float)i;
+    return (Color){(unsigned char)(stops[i].r + (stops[i + 1].r - stops[i].r) * f),
+                   (unsigned char)(stops[i].g + (stops[i + 1].g - stops[i].g) * f),
+                   (unsigned char)(stops[i].b + (stops[i + 1].b - stops[i].b) * f), 255};
+}
+
+void dem_drawn_range(float *zmin, float *zmax) { *zmin = built.zmin; *zmax = built.zmax; }
+
+void dem_shader_scale(float *y_min, float *band_m, float *cell_m) {
+    *y_min = built.ymin; *band_m = built.band_m; *cell_m = built.cell_m;
+}
+
+Color dem_band_color(const Color ramp[THEME_ELEV_RAMP_STOPS], int k) { return ramp_at(ramp, (k + 0.5f) / 10.f); }
+
+int dem_contour_labels(const dem_label_t **out) { *out = built.label; return built.nlabel; }

@@ -601,6 +601,16 @@ int hud_bar_height(const hud_t *h, int screen_h) {
     return transport_h + primary_h + (h->pinned_count > 0 ? h->pinned_count * secondary_h + (int)(4 * s) : 0);
 }
 
+Vector2 hud_top_left_anchor(const hud_t *h, int screen_w, int screen_h, float taken) {
+    float s = powf(screen_h / 720.0f, 0.7f);
+    if (s < 1.0f) s = 1.0f;
+    // the tactical HUD's timer and status block, the panel sits under it on its left edge
+    Vector2 a = h->mode == HUD_TACTICAL ? (Vector2){27.0f * screen_w / 1920.0f, 95.0f * screen_h / 1080.0f}
+                                        : (Vector2){20 * s, 20 * s};
+    if (a.y < taken + 20 * s) a.y = taken + 20 * s;
+    return a;
+}
+
 void hud_cleanup(hud_t *h) {
     UnloadFont(h->font_value);
     UnloadFont(h->font_label);

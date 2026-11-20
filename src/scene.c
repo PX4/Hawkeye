@@ -531,7 +531,7 @@ void scene_handle_input(scene_t *s) {
         s->fpv_pitch = 0.0f;
     }
 
-    if (IsKeyPressed(KEY_F)) {
+    if (IsKeyPressed(KEY_F) && !IsKeyDown(KEY_LEFT_CONTROL) && !IsKeyDown(KEY_RIGHT_CONTROL)) {
         s->ground_tex_on = !s->ground_tex_on;
         printf("Terrain: %s\n", s->ground_tex_on ? "ON" : "OFF");
     }
