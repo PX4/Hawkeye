@@ -793,6 +793,14 @@ void ortho_draw_fullscreen_2d(const scene_t *s, const vehicle_t *vehicles,
 
 // ── Fullscreen ortho label / scale bar / crosshair ───────────────────────────
 
+float ortho_panel_fullscreen_top(int screen_h, int ortho_mode)
+{
+    if (ortho_mode == 0) return 0.0f;  // ORTHO_NONE
+    float s = powf(screen_h / 720.0f, 0.7f);
+    if (s < 1.0f) s = 1.0f;
+    return 12 + 16 * s + 8 + 6;  // the name line, the gap, the bar and its tick
+}
+
 void ortho_panel_draw_fullscreen_label(int screen_w, int screen_h, int ortho_mode,
                                        float ortho_span, const theme_t *theme,
                                        Font font, bool show_axes)
@@ -827,7 +835,7 @@ void ortho_panel_draw_fullscreen_label(int screen_w, int screen_h, int ortho_mod
     float scale_px = scale_m / meters_per_px;
 
     float sx = 12;
-    float sy = 12 + fs + 8;
+    float sy = ortho_panel_fullscreen_top(screen_h, ortho_mode) - 6;
     Color scale_col = (Color){ col.r, col.g, col.b, (unsigned char)(col.a * 0.7f) };
     DrawRectangle((int)sx, (int)sy, (int)scale_px, 2, scale_col);
     DrawRectangle((int)sx, (int)(sy - 3), 1, 8, scale_col);

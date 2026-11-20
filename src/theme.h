@@ -125,4 +125,8 @@ bool theme_registry_add(theme_registry_t *reg, const char *path);
 // Thermal gradient lookup — returns interpolated color for heat 0.0–1.0
 Color theme_heat_color(const theme_t *t, float heat, unsigned char alpha);
 
+// Full spectrum elevation ramp from the theme's drone palette, colored entries ordered by hue
+#define THEME_ELEV_RAMP_STOPS 16
+void theme_elevation_ramp(const theme_t *t, Color out[THEME_ELEV_RAMP_STOPS]);
+
 #endif

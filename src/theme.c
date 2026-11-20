@@ -623,3 +623,30 @@ Color theme_heat_color(const theme_t *t, float heat, unsigned char alpha) {
         alpha
     };
 }
+
+void theme_elevation_ramp(const theme_t *t, Color out[THEME_ELEV_RAMP_STOPS]) {
+    Color c[THEME_DRONE_PALETTE_SIZE];
+    float key[THEME_DRONE_PALETTE_SIZE];
+    int n = 0;
+    for (int k = 0; k < THEME_DRONE_PALETTE_SIZE; k++) {
+        Color p = t->drone_palette[k];
+        float r = p.r / 255.0f, g = p.g / 255.0f, b = p.b / 255.0f;
+        float mx = fmaxf(r, fmaxf(g, b)), mn = fminf(r, fminf(g, b)), d = mx - mn;
+        if (d < 0.15f) continue;
+        float h = mx == r ? fmodf((g - b) / d + 6.0f, 6.0f) : (mx == g ? (b - r) / d + 2.0f : (r - g) / d + 4.0f);
+        float kk = fmodf(240.0f - h * 60.0f + 360.0f, 360.0f);
+        int i = n++;
+        while (i > 0 && key[i - 1] > kk) { key[i] = key[i - 1]; c[i] = c[i - 1]; i--; }
+        key[i] = kk; c[i] = p;
+    }
+    if (n < 2) {
+        c[0] = (Color){0, 0, 0, 255}; c[1] = t->ground; c[2] = (Color){255, 255, 255, 255}; n = 3;
+    }
+    for (int s = 0; s < THEME_ELEV_RAMP_STOPS; s++) {
+        float u = (float)s / (float)(THEME_ELEV_RAMP_STOPS - 1) * (float)(n - 1);
+        int i = (int)u; if (i > n - 2) i = n - 2;
+        float f = u - (float)i;
+        out[s] = (Color){(unsigned char)(c[i].r + (c[i + 1].r - c[i].r) * f), (unsigned char)(c[i].g + (c[i + 1].g - c[i].g) * f),
+                         (unsigned char)(c[i].b + (c[i + 1].b - c[i].b) * f), 255};
+    }
+}

@@ -531,7 +531,7 @@ void scene_handle_input(scene_t *s) {
         s->fpv_pitch = 0.0f;
     }
 
-    if (IsKeyPressed(KEY_F)) {
+    if (IsKeyPressed(KEY_F) && !IsKeyDown(KEY_LEFT_CONTROL) && !IsKeyDown(KEY_RIGHT_CONTROL)) {
         s->ground_tex_on = !s->ground_tex_on;
         printf("Terrain: %s\n", s->ground_tex_on ? "ON" : "OFF");
     }
@@ -699,8 +699,9 @@ static void draw_shader_grid(const scene_t *s,
 
 void scene_draw(const scene_t *s) {
     const theme_t *t = s->theme;
-    draw_shader_grid(s, t->ground, t->grid_minor, t->grid_major,
-                     t->axis_x, t->axis_z, t->tint);
+    if (!s->terrain_active)
+        draw_shader_grid(s, t->ground, t->grid_minor, t->grid_major,
+                         t->axis_x, t->axis_z, t->tint);
 
     // Fullscreen ortho: distance grid for side views (top/bottom use the shader ground grid)
     if (s->ortho_mode >= ORTHO_FRONT && s->ortho_mode <= ORTHO_RIGHT) {
@@ -748,7 +749,7 @@ void scene_draw(const scene_t *s) {
         }
 
         // Ground line for side views (fill is drawn as 2D overlay after EndMode3D)
-        if (s->ortho_mode >= ORTHO_FRONT && s->ortho_mode <= ORTHO_RIGHT) {
+        if (!s->terrain_active) {
             Color gnd_line = { 120, 120, 150, 200 };
             DrawLine3D((Vector3){-ext, 0, -ext}, (Vector3){ ext, 0, -ext}, gnd_line);
             DrawLine3D((Vector3){-ext, 0,  ext}, (Vector3){ ext, 0,  ext}, gnd_line);
@@ -759,8 +760,8 @@ void scene_draw(const scene_t *s) {
 }
 
 void scene_draw_ortho_ground(const scene_t *s, int screen_w, int screen_h) {
-    // Only for side ortho views (front/back/left/right)
-    if (s->ortho_mode < ORTHO_FRONT || s->ortho_mode > ORTHO_RIGHT) return;
+    // Only for side ortho views (front/back/left/right) over the flat floor
+    if (s->ortho_mode < ORTHO_FRONT || s->ortho_mode > ORTHO_RIGHT || s->terrain_active) return;
 
     // Project Y=0 world position to screen Y
     Vector3 ground_pt = s->camera.target;

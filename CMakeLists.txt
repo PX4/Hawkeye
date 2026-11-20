@@ -4,6 +4,7 @@ project(hawkeye C)
 set(CMAKE_C_STANDARD 11)
 
 option(BUILD_TESTING "Build tests" OFF)
+option(HAWKEYE_GEOTIFF "Read GeoTIFF elevation models with libtiff" OFF)
 
 # MAVLink c_library_v2 (header-only, submodule)
 set(MAVLINK_DIR ${CMAKE_SOURCE_DIR}/lib/c_library_v2)
@@ -43,6 +44,7 @@ if(NOT BUILD_TESTING_ONLY)
         src/data_source_mavlink.c
         src/vehicle.c
         src/scene.c
+        src/terrain_dem.c
         src/hud.c
         src/hud_help.c
         src/hud_instruments.c
@@ -69,6 +71,12 @@ if(NOT BUILD_TESTING_ONLY)
     target_compile_definitions(hawkeye PRIVATE MAVLINK_COMM_NUM_BUFFERS=16)
 
     target_link_libraries(hawkeye PRIVATE raylib hawkeye-core)
+
+    if(HAWKEYE_GEOTIFF)
+        find_package(TIFF REQUIRED)
+        target_link_libraries(hawkeye PRIVATE TIFF::TIFF)
+        target_compile_definitions(hawkeye PRIVATE HAWKEYE_GEOTIFF)
+    endif()
 
     if(APPLE)
         target_link_libraries(hawkeye PRIVATE
