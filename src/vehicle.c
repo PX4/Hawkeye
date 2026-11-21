@@ -791,8 +791,8 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
                   cur_dir.z * v->trail_last_dir.z;
     }
 
-    // Sample triggers: dense on turns, sparse on straights
-    v->trail_timer += GetFrameTime();
+    // Sample triggers: dense on turns, sparse on straights. The timer runs on the replay clock, so a pause adds nothing.
+    if (dt > 0.0f && dt <= 1.0f) v->trail_timer += dt;
     bool dir_trigger  = (dir_dot < 0.995f) && (dist_since >= TRAIL_DIST_INTERVAL);
     bool dist_trigger = (dist_since >= 0.5f);
     bool time_trigger = (v->trail_timer >= TRAIL_INTERVAL * 4.0f);
