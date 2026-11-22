@@ -33,7 +33,141 @@ static int trail_lod_skip(Vector3 a, Vector3 b, Vector3 cam)
     return 0;
 }
 
+#define TRAIL_SPEED_FULL 5.0f  // m/s on any translation axis for a full direction color
 #define TRAIL_DIST_INTERVAL 0.01f  // meters between ribbon samples
+
+/* Directional trail color for one sample. */
+static Color trail_dir_color(const vehicle_t *v, int idx, float age, const theme_t *theme)
+{
+    Color c = vehicle_marker_color(v->trail_roll[idx], v->trail_fwd[idx], v->trail_lat[idx], v->trail_vert[idx],
+                                   v->trail_turn[idx], v->trail_speed[idx], v->trail_speed_max,
+                                   theme, 1, v->color);
+    c.a = (unsigned char)(age * theme->trail_forward.a * v->ghost_alpha);
+    return c;
+}
+
+/* Trail lines (modes 1 and 3), drawn as camera-facing strips — GL lines
+ * cap at 1 px. */
+static void draw_trail_thick_line(const vehicle_t *v, const theme_t *theme,
+                                  Vector3 cam_pos, int trail_mode)
+{
+    int start = (v->trail_count < v->trail_capacity) ? 0 : v->trail_head;
+
+    rlDrawRenderBatchActive();
+    rlDisableBackfaceCulling();
+    rlDisableDepthMask();
+    rlBegin(RL_TRIANGLES);
+
+    Vector3 perp = {0};
+    bool have_perp = false;
+    Vector3 last_p = {0}, last_l = {0}, last_r = {0};
+    Color last_c = {0};
+    float last_hw = 0.0f;
+    bool have_point = false, have_xsec = false;
+
+    int i = 0;
+    while (i < v->trail_count) {
+        int idx = (start + i) % v->trail_capacity;
+        Vector3 p = v->trail[idx];
+
+        if (have_point) {
+            Vector3 seg = { p.x - last_p.x, p.y - last_p.y, p.z - last_p.z };
+            float seg_len = sqrtf(seg.x*seg.x + seg.y*seg.y + seg.z*seg.z);
+            if (seg_len < 0.001f) { i++; continue; }  // duplicate sample
+            Vector3 dir = { seg.x/seg_len, seg.y/seg_len, seg.z/seg_len };
+            Vector3 to_cam = { cam_pos.x - p.x, cam_pos.y - p.y, cam_pos.z - p.z };
+            Vector3 bp = Vector3CrossProduct(dir, to_cam);
+            float plen = Vector3Length(bp);
+            if (plen < 0.001f) {
+                // Path aims straight at the camera: keep the previous frame
+                if (!have_perp) { i++; continue; }
+            } else {
+                bp = Vector3Scale(bp, 1.0f / plen);
+                // keep sign consistent
+                if (have_perp && (bp.x*perp.x + bp.y*perp.y + bp.z*perp.z) < 0.0f)
+                    bp = Vector3Scale(bp, -1.0f);
+                perp = bp;
+                have_perp = true;
+            }
+        }
+
+        float age = (float)i / (float)v->trail_count;
+        Color c = (trail_mode == 1)
+            ? trail_dir_color(v, idx, age, theme)
+            : (Color){ v->color.r, v->color.g, v->color.b,
+                     (unsigned char)(age * 200 * v->ghost_alpha) };
+
+        // ~2.5 px on screen, clamped
+        float dx = cam_pos.x - p.x, dy = cam_pos.y - p.y, dz = cam_pos.z - p.z;
+        float dist = sqrtf(dx*dx + dy*dy + dz*dz);
+        float hw = dist * 0.0014f;
+        if (hw < 0.012f) hw = 0.012f;
+        if (hw > 1.0f) hw = 1.0f;
+
+        if (have_point && have_perp) {
+            if (!have_xsec) {
+                last_l = (Vector3){ last_p.x + perp.x*last_hw,
+                                  last_p.y + perp.y*last_hw,
+                                  last_p.z + perp.z*last_hw };
+                last_r = (Vector3){ last_p.x - perp.x*last_hw,
+                                  last_p.y - perp.y*last_hw,
+                                  last_p.z - perp.z*last_hw };
+                have_xsec = true;
+            }
+            Vector3 l = { p.x + perp.x*hw, p.y + perp.y*hw, p.z + perp.z*hw };
+            Vector3 r = { p.x - perp.x*hw, p.y - perp.y*hw, p.z - perp.z*hw };
+
+            rlColor4ub(last_c.r, last_c.g, last_c.b, last_c.a);
+            rlVertex3f(last_l.x, last_l.y, last_l.z);
+            rlVertex3f(last_r.x, last_r.y, last_r.z);
+            rlColor4ub(c.r, c.g, c.b, c.a);
+            rlVertex3f(l.x, l.y, l.z);
+
+            rlColor4ub(last_c.r, last_c.g, last_c.b, last_c.a);
+            rlVertex3f(last_r.x, last_r.y, last_r.z);
+            rlColor4ub(c.r, c.g, c.b, c.a);
+            rlVertex3f(r.x, r.y, r.z);
+            rlVertex3f(l.x, l.y, l.z);
+
+            last_l = l; last_r = r;
+        }
+
+        last_p = p; last_c = c; last_hw = hw;
+        have_point = true;
+
+        int skip = trail_lod_skip(p, p, cam_pos);
+        int next = i + 1 + skip;
+        if (next > v->trail_count - 1 && i < v->trail_count - 1)
+            next = v->trail_count - 1;
+        i = next;
+    }
+
+    if (have_xsec) {
+        Vector3 seg = { v->position.x - last_p.x, v->position.y - last_p.y,
+                        v->position.z - last_p.z };
+        float seg_len = sqrtf(seg.x*seg.x + seg.y*seg.y + seg.z*seg.z);
+        if (seg_len > 0.001f && seg_len < 2.0f) {
+            Vector3 l = { v->position.x + perp.x*last_hw,
+                          v->position.y + perp.y*last_hw,
+                          v->position.z + perp.z*last_hw };
+            Vector3 r = { v->position.x - perp.x*last_hw,
+                          v->position.y - perp.y*last_hw,
+                          v->position.z - perp.z*last_hw };
+            rlColor4ub(last_c.r, last_c.g, last_c.b, last_c.a);
+            rlVertex3f(last_l.x, last_l.y, last_l.z);
+            rlVertex3f(last_r.x, last_r.y, last_r.z);
+            rlVertex3f(l.x, l.y, l.z);
+            rlVertex3f(last_r.x, last_r.y, last_r.z);
+            rlVertex3f(r.x, r.y, r.z);
+            rlVertex3f(l.x, l.y, l.z);
+        }
+    }
+    rlEnd();
+
+    rlDrawRenderBatchActive();
+    rlEnableBackfaceCulling();
+    rlEnableDepthMask();
+}
 
 // ── Model registry ──────────────────────────────────────────────────────────
 // To add a new model: append an entry here and increment nothing else.
@@ -488,8 +622,10 @@ static void vehicle_init_common(vehicle_t *v, int model_idx, Shader lighting_sha
     v->color = WHITE;
     v->trail = (Vector3 *)calloc(capacity, sizeof(Vector3));
     v->trail_roll = (float *)calloc(capacity, sizeof(float));
-    v->trail_pitch = (float *)calloc(capacity, sizeof(float));
+    v->trail_fwd = (float *)calloc(capacity, sizeof(float));
+    v->trail_lat = (float *)calloc(capacity, sizeof(float));
     v->trail_vert = (float *)calloc(capacity, sizeof(float));
+    v->trail_turn = (float *)calloc(capacity, sizeof(float));
     v->trail_speed = (float *)calloc(capacity, sizeof(float));
     v->trail_time = (float *)calloc(capacity, sizeof(float));
     v->trail_capacity = capacity;
@@ -521,7 +657,7 @@ void vehicle_init_ex(vehicle_t *v, int model_idx, Shader lighting_shader, int tr
 }
 
 void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_t *home) {
-    if (!state->valid) return;
+    if (!state->valid) { v->heading_valid = false; return; }
     // a position of exactly 0, 0 is a frame with no reference yet, not a place
     if (state->lat == 0 && state->lon == 0) return;
 
@@ -586,6 +722,7 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     float nw = qw, nx = qx, ny = qy, nz = qz;
     if (nw < 0.0f) { nw = -nw; nx = -nx; ny = -ny; nz = -nz; }
 
+    float prev_heading = v->heading_deg;
     float heading_rad = atan2f(2.0f * (nw * nz + nx * ny),
                                1.0f - 2.0f * (ny * ny + nz * nz));
     v->heading_deg = heading_rad * RAD2DEG;
@@ -602,6 +739,29 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     v->ground_speed = sqrtf((float)state->vx * state->vx +
                             (float)state->vy * state->vy) * 0.01f;
     v->vertical_speed = -state->vz * 0.01f;
+    v->forward_speed = ((float)state->vx * cosf(heading_rad) +
+                        (float)state->vy * sinf(heading_rad)) * 0.01f;
+    v->lateral_speed = (-(float)state->vx * sinf(heading_rad) +
+                        (float)state->vy * cosf(heading_rad)) * 0.01f;
+
+    // Yaw rate from heading delta over replay time (frame time when live), low-passed.
+    // A gap over a second is a seek, not motion.
+    float dh = v->heading_deg - prev_heading;
+    if (dh > 180.0f) dh -= 360.0f;
+    if (dh < -180.0f) dh += 360.0f;
+    bool has_clock = (v->current_time != 0.0f || v->yaw_rate_time != 0.0f);
+    float dt = has_clock ? v->current_time - v->yaw_rate_time : GetFrameTime();
+    v->yaw_rate_time = v->current_time;
+    if (has_clock && dt == 0.0f) {
+        // replay paused, hold the last rate
+    } else if (!v->heading_valid || dt <= 0.0f || dt > 1.0f) {
+        v->yaw_rate_deg = 0.0f;
+    } else if (dt > 0.001f) {
+        float k = dt / 0.3f;
+        if (k > 1.0f) k = 1.0f;
+        v->yaw_rate_deg += (dh / dt - v->yaw_rate_deg) * k;
+    }
+    v->heading_valid = true;
     v->airspeed = state->ind_airspeed * 0.01f;
     v->altitude_rel = (float)(state->relative_alt_valid
         ? state->relative_alt * 1e-3
@@ -631,8 +791,8 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
                   cur_dir.z * v->trail_last_dir.z;
     }
 
-    // Sample triggers: dense on turns, sparse on straights
-    v->trail_timer += GetFrameTime();
+    // Sample triggers: dense on turns, sparse on straights. The timer runs on the replay clock, so a pause adds nothing.
+    if (dt > 0.0f && dt <= 1.0f) v->trail_timer += dt;
     bool dir_trigger  = (dir_dot < 0.995f) && (dist_since >= TRAIL_DIST_INTERVAL);
     bool dist_trigger = (dist_since >= 0.5f);
     bool time_trigger = (v->trail_timer >= TRAIL_INTERVAL * 4.0f);
@@ -642,8 +802,10 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
         if (dist_since > 0.001f) v->trail_last_dir = cur_dir;
         v->trail[v->trail_head] = v->position;
         v->trail_roll[v->trail_head] = v->roll_deg;
-        v->trail_pitch[v->trail_head] = v->pitch_deg;
+        v->trail_fwd[v->trail_head] = v->forward_speed;
+        v->trail_lat[v->trail_head] = v->lateral_speed;
         v->trail_vert[v->trail_head] = v->vertical_speed;
+        v->trail_turn[v->trail_head] = v->yaw_rate_deg;
         v->trail_time[v->trail_head] = v->current_time;
         float spd = sqrtf(v->ground_speed * v->ground_speed +
                           v->vertical_speed * v->vertical_speed);
@@ -760,114 +922,11 @@ void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
             : v->trail_head;
 
       if (trail_mode == 1) {
-        // ── Normal directional trail ──
-        Color trail_color = theme->trail_forward;
-        // Keep original alpha for trail_forward (varies by theme)
-        Color col_back     = theme->trail_backward;
-        Color col_up       = theme->trail_climb;
-        Color col_down     = theme->trail_descend;
-        Color col_roll_pos = theme->trail_roll_pos;
-        Color col_roll_neg = theme->trail_roll_neg;
-        bool thick = theme->thick_trails;
-
-        // Batched trail: single rlBegin/rlEnd instead of per-segment DrawLine3D
-        rlBegin(thick ? RL_TRIANGLES : RL_LINES);
-        int lod_skip = 0;
-        for (int i = 1; i < v->trail_count; i++) {
-            int idx0 = (start + i - 1) % v->trail_capacity;
-            int idx1 = (start + i) % v->trail_capacity;
-
-            // LOD: skip segments far from camera to reduce vertex count
-            int skip = trail_lod_skip(v->trail[idx0], v->trail[idx1], cam_pos);
-            if (lod_skip > 0) { lod_skip--; continue; }
-            lod_skip = skip;
-
-            float t = (float)i / (float)v->trail_count;
-
-            float pitch = v->trail_pitch[idx1];
-            float vert  = v->trail_vert[idx1];
-            float roll  = v->trail_roll[idx1];
-
-            float cr = (float)trail_color.r;
-            float cg = (float)trail_color.g;
-            float cb = (float)trail_color.b;
-
-            float back_t = pitch / 15.0f;
-            if (back_t < 0.0f) back_t = 0.0f;
-            if (back_t > 1.0f) back_t = 1.0f;
-            cr += (col_back.r - cr) * back_t;
-            cg += (col_back.g - cg) * back_t;
-            cb += (col_back.b - cb) * back_t;
-
-            float vert_t = vert / 5.0f;
-            if (vert_t > 1.0f) vert_t = 1.0f;
-            if (vert_t < -1.0f) vert_t = -1.0f;
-            if (vert_t > 0.0f) {
-                cr += (col_up.r - cr) * vert_t;
-                cg += (col_up.g - cg) * vert_t;
-                cb += (col_up.b - cb) * vert_t;
-            } else if (vert_t < 0.0f) {
-                float dt2 = -vert_t;
-                cr += (col_down.r - cr) * dt2;
-                cg += (col_down.g - cg) * dt2;
-                cb += (col_down.b - cb) * dt2;
-            }
-
-            float roll_t = roll / 15.0f;
-            if (roll_t > 1.0f) roll_t = 1.0f;
-            if (roll_t < -1.0f) roll_t = -1.0f;
-            if (roll_t > 0.0f) {
-                cr += (col_roll_pos.r - cr) * roll_t * 0.7f;
-                cg += (col_roll_pos.g - cg) * roll_t * 0.7f;
-                cb += (col_roll_pos.b - cb) * roll_t * 0.7f;
-            } else if (roll_t < 0.0f) {
-                float rt = -roll_t;
-                cr += (col_roll_neg.r - cr) * rt * 0.7f;
-                cg += (col_roll_neg.g - cg) * rt * 0.7f;
-                cb += (col_roll_neg.b - cb) * rt * 0.7f;
-            }
-
-            unsigned char ccr = (unsigned char)(cr > 255 ? 255 : cr);
-            unsigned char ccg = (unsigned char)(cg > 255 ? 255 : cg);
-            unsigned char ccb = (unsigned char)(cb > 255 ? 255 : cb);
-            unsigned char ca  = (unsigned char)(t * trail_color.a * v->ghost_alpha);
-            rlColor4ub(ccr, ccg, ccb, ca);
-            if (!thick) {
-                rlVertex3f(v->trail[idx0].x, v->trail[idx0].y, v->trail[idx0].z);
-                rlVertex3f(v->trail[idx1].x, v->trail[idx1].y, v->trail[idx1].z);
-            } else {
-                // Flat ribbon for better visibility in snow mode
-                Vector3 seg = Vector3Subtract(v->trail[idx1], v->trail[idx0]);
-                Vector3 up = {0, 1, 0};
-                Vector3 perp = Vector3CrossProduct(seg, up);
-                float plen = Vector3Length(perp);
-                if (plen < 0.001f) continue;
-                float hw = 0.013f;
-                perp = Vector3Scale(perp, hw / plen);
-                Vector3 a = Vector3Add(v->trail[idx0], perp);
-                Vector3 b = Vector3Subtract(v->trail[idx0], perp);
-                Vector3 d = Vector3Add(v->trail[idx1], perp);
-                Vector3 e = Vector3Subtract(v->trail[idx1], perp);
-                rlVertex3f(a.x, a.y, a.z); rlVertex3f(b.x, b.y, b.z); rlVertex3f(d.x, d.y, d.z);
-                rlVertex3f(b.x, b.y, b.z); rlVertex3f(e.x, e.y, e.z); rlVertex3f(d.x, d.y, d.z);
-                rlVertex3f(d.x, d.y, d.z); rlVertex3f(b.x, b.y, b.z); rlVertex3f(a.x, a.y, a.z);
-                rlVertex3f(d.x, d.y, d.z); rlVertex3f(e.x, e.y, e.z); rlVertex3f(b.x, b.y, b.z);
-            }
-        }
-        rlEnd();
+        // ── Normal directional trail (constant-width line) ──
+        draw_trail_thick_line(v, theme, cam_pos, 1);
       } else if (trail_mode == 3) {
         // ── Drone-color trail: solid vehicle color with age fade ──
-        rlBegin(RL_LINES);
-        for (int i = 1; i < v->trail_count; i++) {
-            int idx0 = (start + i - 1) % v->trail_capacity;
-            int idx1 = (start + i) % v->trail_capacity;
-            float t = (float)i / (float)v->trail_count;
-            unsigned char ca = (unsigned char)(t * 200 * v->ghost_alpha);
-            rlColor4ub(v->color.r, v->color.g, v->color.b, ca);
-            rlVertex3f(v->trail[idx0].x, v->trail[idx0].y, v->trail[idx0].z);
-            rlVertex3f(v->trail[idx1].x, v->trail[idx1].y, v->trail[idx1].z);
-        }
-        rlEnd();
+        draw_trail_thick_line(v, theme, cam_pos, 3);
       } else {
         // ── Speed ribbon trail (mode 2) ──
         // Batched triangle ribbon with adaptive sampling (dense on turns, sparse on straights).
@@ -1029,6 +1088,8 @@ void vehicle_reset_trail(vehicle_t *v) {
     v->trail_head = 0;
     v->trail_timer = 0.0f;
     v->trail_speed_max = 0.0f;
+    v->yaw_rate_deg = 0.0f;
+    v->heading_valid = false;
 }
 
 void vehicle_truncate_trail(vehicle_t *v, float time_s) {
@@ -1061,7 +1122,7 @@ void vehicle_truncate_trail(vehicle_t *v, float time_s) {
     }
 }
 
-Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
+Color vehicle_marker_color(float roll, float fwd, float lat, float vert, float turn, float speed,
                            float speed_max, const theme_t *theme, int trail_mode,
                            Color drone_color) {
     if (trail_mode == 3) {
@@ -1074,48 +1135,47 @@ Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
         if (heat < 0.0f) heat = 0.0f;
         return theme_heat_color(theme, heat, 255);
     }
-    Color trail_color  = theme->trail_forward;
-    Color col_back     = theme->trail_backward;
-    Color col_up       = theme->trail_climb;
-    Color col_down     = theme->trail_descend;
-    Color col_roll_pos = theme->trail_roll_pos;
-    Color col_roll_neg = theme->trail_roll_neg;
 
-    float cr = (float)trail_color.r, cg = (float)trail_color.g, cb = (float)trail_color.b;
+    // Base is the six direction slots summed, so a hover sits near white or near black per theme
+    Color slots[6] = { theme->trail_forward, theme->trail_backward, theme->trail_climb,
+                       theme->trail_descend, theme->trail_roll_pos, theme->trail_roll_neg };
+    float br = 0.0f, bg = 0.0f, bb = 0.0f;
+    for (int i = 0; i < 6; i++) { br += slots[i].r; bg += slots[i].g; bb += slots[i].b; }
+    if (br > 255.0f) br = 255.0f;
+    if (bg > 255.0f) bg = 255.0f;
+    if (bb > 255.0f) bb = 255.0f;
 
-    float back_t = pitch / 15.0f;
-    if (back_t < 0.0f) back_t = 0.0f;
-    if (back_t > 1.0f) back_t = 1.0f;
-    cr += (col_back.r - cr) * back_t;
-    cg += (col_back.g - cg) * back_t;
-    cb += (col_back.b - cb) * back_t;
-
-    float vert_t = vert / 5.0f;
-    if (vert_t > 1.0f) vert_t = 1.0f;
-    if (vert_t < -1.0f) vert_t = -1.0f;
-    if (vert_t > 0.0f) {
-        cr += (col_up.r - cr) * vert_t;
-        cg += (col_up.g - cg) * vert_t;
-        cb += (col_up.b - cb) * vert_t;
-    } else if (vert_t < 0.0f) {
-        float dt2 = -vert_t;
-        cr += (col_down.r - cr) * dt2;
-        cg += (col_down.g - cg) * dt2;
-        cb += (col_down.b - cb) * dt2;
+    // Three translation axes on one scale, sign picks the slot, weights average
+    float axis[3] = { fwd, lat, vert };
+    Color pos[3]  = { theme->trail_forward,  theme->trail_roll_pos, theme->trail_climb };
+    Color neg[3]  = { theme->trail_backward, theme->trail_roll_neg, theme->trail_descend };
+    float cr = 0.0f, cg = 0.0f, cb = 0.0f, wsum = 0.0f;
+    for (int i = 0; i < 3; i++) {
+        float w = fabsf(axis[i]) / TRAIL_SPEED_FULL;
+        if (w > 1.0f) w = 1.0f;
+        Color c = axis[i] >= 0.0f ? pos[i] : neg[i];
+        cr += w * c.r; cg += w * c.g; cb += w * c.b;
+        wsum += w;
+    }
+    if (wsum < 1.0f) {
+        cr += (1.0f - wsum) * br; cg += (1.0f - wsum) * bg; cb += (1.0f - wsum) * bb;
+    } else {
+        cr /= wsum; cg /= wsum; cb /= wsum;
     }
 
-    float roll_t = roll / 15.0f;
+    // Bank and yaw rate share the port and starboard colors, 15 deg or 20 deg/s is full
+    float roll_t = roll / 15.0f + turn / 20.0f;
     if (roll_t > 1.0f) roll_t = 1.0f;
     if (roll_t < -1.0f) roll_t = -1.0f;
     if (roll_t > 0.0f) {
-        cr += (col_roll_pos.r - cr) * roll_t * 0.7f;
-        cg += (col_roll_pos.g - cg) * roll_t * 0.7f;
-        cb += (col_roll_pos.b - cb) * roll_t * 0.7f;
+        cr += (theme->trail_roll_pos.r - cr) * roll_t * 0.7f;
+        cg += (theme->trail_roll_pos.g - cg) * roll_t * 0.7f;
+        cb += (theme->trail_roll_pos.b - cb) * roll_t * 0.7f;
     } else if (roll_t < 0.0f) {
         float rt = -roll_t;
-        cr += (col_roll_neg.r - cr) * rt * 0.7f;
-        cg += (col_roll_neg.g - cg) * rt * 0.7f;
-        cb += (col_roll_neg.b - cb) * rt * 0.7f;
+        cr += (theme->trail_roll_neg.r - cr) * rt * 0.7f;
+        cg += (theme->trail_roll_neg.g - cg) * rt * 0.7f;
+        cb += (theme->trail_roll_neg.b - cb) * rt * 0.7f;
     }
 
     return (Color){
@@ -1128,9 +1188,9 @@ Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
 
 void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
                           int current_marker, Vector3 cam_pos, Camera3D camera,
-                          float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                          float speed_max, const theme_t *theme, int trail_mode,
-                          marker_type_t type, Color drone_color) {
+                          float *m_roll, float *m_fwd, float *m_lat, float *m_vert, float *m_turn,
+                          float *m_speed, float speed_max, const theme_t *theme,
+                          int trail_mode, marker_type_t type, Color drone_color) {
     (void)labels;
     bool is_system = (type == MARKER_SYSTEM);
 
@@ -1144,7 +1204,7 @@ void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
 
         bool is_current = (i == current_marker);
 
-        Color col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
+        Color col = vehicle_marker_color(m_roll[i], m_fwd[i], m_lat[i], m_vert[i], m_turn[i], m_speed[i],
                                          speed_max, theme, trail_mode, drone_color);
 
         if (is_current) {
@@ -1199,9 +1259,9 @@ void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
 void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count,
                                 int current_marker, Vector3 cam_pos, Camera3D camera,
                                 Font font_label, Font font_value,
-                                float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                                float speed_max, const theme_t *theme, int trail_mode,
-                                marker_type_t type, Color drone_color) {
+                                float *m_roll, float *m_fwd, float *m_lat, float *m_vert, float *m_turn,
+                                float *m_speed, float speed_max, const theme_t *theme,
+                                int trail_mode, marker_type_t type, Color drone_color) {
     bool is_system = (type == MARKER_SYSTEM);
     Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
 
@@ -1250,8 +1310,9 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
         float rw = tw.x + pad_x * 2;
         float rh = tw.y + pad_y * 2;
 
-        Color text_col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
-                                              speed_max, theme, trail_mode, drone_color);
+        Color text_col = vehicle_marker_color(m_roll[i], m_fwd[i], m_lat[i], m_vert[i], m_turn[i],
+                                              m_speed[i], speed_max, theme, trail_mode,
+                                              drone_color);
         if (is_current) {
             if (theme->thick_trails) {
                 text_col.r = (unsigned char)(text_col.r * 0.55f);
@@ -1451,8 +1512,10 @@ void vehicle_cleanup(vehicle_t *v) {
     UnloadModel(v->model);
     free(v->trail);
     free(v->trail_roll);
-    free(v->trail_pitch);
+    free(v->trail_fwd);
+    free(v->trail_lat);
     free(v->trail_vert);
+    free(v->trail_turn);
     free(v->trail_speed);
     free(v->trail_time);
     free(v->material_roles);
@@ -1461,8 +1524,10 @@ void vehicle_cleanup(vehicle_t *v) {
     v->material_roles = NULL;
     v->mesh_roles = NULL;
     v->trail_roll = NULL;
-    v->trail_pitch = NULL;
+    v->trail_fwd = NULL;
+    v->trail_lat = NULL;
     v->trail_vert = NULL;
+    v->trail_turn = NULL;
     v->trail_speed = NULL;
     v->trail_time = NULL;
 }
