@@ -656,6 +656,8 @@ void vehicle_init_ex(vehicle_t *v, int model_idx, Shader lighting_shader, int tr
     vehicle_init_common(v, model_idx, lighting_shader, trail_capacity);
 }
 
+bool vehicle_floor_is_flat = true;
+
 void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_t *home) {
     if (!state->valid) { v->heading_valid = false; return; }
     // a position of exactly 0, 0 is a frame with no reference yet, not a place
@@ -704,7 +706,7 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     // NED frame → Raylib (X=right, Y=up, Z=back) + grid deconfliction offset
     v->position.x = (float)jmav_y + v->grid_offset.x;
     v->position.y = (float)jmav_z + v->grid_offset.y;
-    if (v->position.y < 0.0f) v->position.y = 0.0f;
+    if (vehicle_floor_is_flat && v->position.y < 0.0f) v->position.y = 0.0f;
     v->position.z = (float)(-jmav_x) + v->grid_offset.z;
 
     // MAVLink quaternion: w,x,y,z in NED frame → Raylib

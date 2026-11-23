@@ -14,6 +14,7 @@
 
 #include "raylib.h"
 #include "raymath.h"
+#include "rlgl.h"
 #include "data_source.h"
 #include "vehicle.h"
 #include "scene.h"
@@ -28,6 +29,7 @@
 #include "replay_markers.h"
 #include "ui_marker_input.h"
 #include "tactical_hud.h"
+#include "terrain_dem.h"
 
 #define MAX_VEHICLES 16
 #define EARTH_RADIUS 6371000.0
@@ -35,6 +37,29 @@
 #include "correlation.h"
 
 #define CHORD_TIMEOUT_S 0.3
+
+// Solid terrain fill: theme.ground with its luminance held between lo and hi, scaled so the hue is kept.
+static Color clamp_luminance(Color c, float lo, float hi) {
+    float r = c.r / 255.0f;
+    float g = c.g / 255.0f;
+    float b = c.b / 255.0f;
+    float y = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+    float scale = 1.0f;
+    if (y > 1e-4f && y < lo) {
+        scale = lo / y;
+    } else if (y > hi) {
+        scale = hi / y;
+    }
+    r = Clamp(r * scale, 0.0f, 1.0f);
+    g = Clamp(g * scale, 0.0f, 1.0f);
+    b = Clamp(b * scale, 0.0f, 1.0f);
+    return (Color){
+        (unsigned char)(r * 255.0f + 0.5f),
+        (unsigned char)(g * 255.0f + 0.5f),
+        (unsigned char)(b * 255.0f + 0.5f),
+        c.a
+    };
+}
 
 static void print_usage(const char *prog) {
     printf("Usage: %s [options]\n", prog);
@@ -46,6 +71,7 @@ static void print_usage(const char *prog) {
     printf("  -origin <lat> <lon> <alt>  NED origin in degrees/meters (default: PX4 SIH)\n");
     printf("  --replay <file1.ulg> [file2.ulg ...]  Replay ULog file(s)\n");
     printf("  --ghost <file1.ulg> [file2.ulg ...]   Ghost mode replay\n");
+    printf("  --terrain-dem <file.tif>  Draw ground from a GeoTIFF elevation model\n");
     printf("  -w <width>     Window width (default: 1280)\n");
     printf("  -h <height>    Window height (default: 720)\n");
 }
@@ -144,6 +170,78 @@ static void draw_edge_indicators(const vehicle_t *vehicles, int vehicle_count,
     }
 }
 
+// The DEM's 2D layer after the 3D pass, the band legend and the contour values on the ground.
+// A value is bare text with a one pixel edge in the HUD background behind it.
+static void dem_draw_overlay(const hud_t *hud, const theme_t *t, Camera3D camera,
+                             const Color ramp[THEME_ELEV_RAMP_STOPS], bool contours, bool legend, Vector2 at,
+                             const vehicle_t *vehicles, int vehicle_count, int bottom)
+{
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    float s = powf(sh / 720.0f, 0.7f);
+    if (s < 1.0f) s = 1.0f;
+
+    if (contours) {
+        const dem_label_t *lab;
+        int n = dem_contour_labels(&lab);
+        Vector3 fwd = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+        Vector3 right = Vector3Normalize(Vector3CrossProduct(fwd, camera.up));
+        float fs = 12 * s;
+        // light value text with the HUD background as a dark edge, so the number pops off any band color
+        Color edge = t->hud_bg; edge.a = 255;
+        Rectangle drawn[256]; int ndrawn = 0;   // one label per spot on screen
+        // the drones' footprints go in first, the labels are 2D and would paint over them otherwise
+        for (int i = 0; i < vehicle_count && ndrawn < 256; i++) {
+            if (!vehicles[i].active || Vector3DotProduct(Vector3Subtract(vehicles[i].position, camera.position), fwd) <= 0.0f) continue;
+            BoundingBox bb = GetModelBoundingBox(vehicles[i].model);
+            float r = Vector3Length(Vector3Subtract(bb.max, bb.min)) * 0.5f * vehicles[i].model_scale;
+            Vector2 c = GetWorldToScreen(vehicles[i].position, camera);
+            float pr = Vector2Distance(c, GetWorldToScreen(Vector3Add(vehicles[i].position, Vector3Scale(right, r)), camera));
+            drawn[ndrawn++] = (Rectangle){c.x - pr, c.y - pr, pr * 2, pr * 2};
+        }
+        for (int i = 0; i < n; i++) {
+            Vector3 d = Vector3Subtract(lab[i].at, camera.position);
+            if (Vector3DotProduct(d, fwd) <= 0.0f || Vector3Length(d) > 2000.0f) continue;
+            Vector2 sp = GetWorldToScreen(lab[i].at, camera);
+            // on screen and above the HUD bar, which is translucent
+            if (sp.x < 0 || sp.x > sw || sp.y < 0 || sp.y > bottom - 10 * s) continue;
+            char txt[16];
+            snprintf(txt, sizeof txt, "%.0f m", lab[i].z);
+            Vector2 tw = MeasureTextEx(hud->font_label, txt, fs, 0.5f);
+            Vector2 o = {sp.x - tw.x / 2, sp.y - tw.y / 2};
+            Rectangle r = {o.x - 4 * s, o.y - 2 * s, tw.x + 8 * s, tw.y + 4 * s};
+            int k = 0;
+            while (k < ndrawn && !CheckCollisionRecs(r, drawn[k])) k++;
+            if (k < ndrawn || ndrawn == 256) continue;
+            drawn[ndrawn++] = r;
+            for (k = 0; k < 4; k++)
+                DrawTextEx(hud->font_label, txt, (Vector2){o.x + (k & 1 ? 1 : -1) * s, o.y + (k & 2 ? 1 : -1) * s}, fs, 0.5f, edge);
+            DrawTextEx(hud->font_label, txt, o, fs, 0.5f, t->hud_value);
+        }
+    }
+
+    if (!legend) return;
+    // the legend, ten swatches low to high with the band edges in meters above sea level
+    float lo, hi;
+    dem_drawn_range(&lo, &hi);
+    float sw_h = 16 * s, sw_w = 14 * s, pad = 8 * s, fs_v = 10 * s, fs_l = 10 * s;
+    float num_w = MeasureTextEx(hud->font_value, "0000", fs_v, 0.5f).x;
+    float box_w = fmaxf(pad * 3 + sw_w + num_w, pad * 2 + MeasureTextEx(hud->font_label, "GROUND m ASL", fs_l, 0.5f).x);
+    Rectangle box = {at.x, at.y, box_w, pad * 2 + fs_l + 4 * s + sw_h * 10 + fs_v / 2};
+    DrawRectangleRounded(box, 0.15f, 6, t->hud_bg);
+    DrawRectangleRoundedLinesEx(box, 0.15f, 6, 1.0f, t->hud_border);
+    Color label = t->hud_accent_dim; label.a = (unsigned char)(label.a * 0.7f);
+    DrawTextEx(hud->font_label, "GROUND m ASL", (Vector2){box.x + pad, box.y + pad}, fs_l, 0.5f, label);
+    float top = box.y + pad + fs_l + 4 * s + fs_v / 2;
+    for (int k = 0; k < 10; k++)
+        DrawRectangle((int)(box.x + pad), (int)(top + (9 - k) * sw_h), (int)sw_w, (int)sw_h + 1, dem_band_color(ramp, k));
+    for (int k = 0; k <= 10; k++) {
+        char v[16];
+        snprintf(v, sizeof v, "%.0f", lo + (hi - lo) * k / 10.0f);
+        DrawTextEx(hud->font_value, v, (Vector2){box.x + pad * 2 + sw_w, top + (10 - k) * sw_h - fs_v / 2}, fs_v, 0.5f,
+                   (k == 0 || k == 10) ? t->hud_value : t->hud_dim);
+    }
+}
+
 int main(int argc, char *argv[]) {
     uint16_t base_port = 19410;
     int vehicle_count = 1;
@@ -159,6 +257,13 @@ int main(int argc, char *argv[]) {
     char *replay_paths[MAX_VEHICLES] = {0};
     int num_replay_files = 0;
     bool ghost_mode = false;
+    const char *dem_path = NULL;
+    Model dem_model = {0};
+    int dem_color = 0;                 // Ctrl+F, 0 the shade alone, 1 elevation bands, 2 bands and contour lines
+    const theme_t *dem_theme = NULL;   // the theme whose ramp the shader holds
+    Color dem_ramp[THEME_ELEV_RAMP_STOPS];
+    Shader dem_shader = {0};           // bands, contour lines and the no-data hatch, per pixel
+    int dem_loc_mode = -1, dem_loc_bands = -1, dem_loc_warn = -1;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-udp") == 0 && i + 1 < argc) {
@@ -201,6 +306,8 @@ int main(int argc, char *argv[]) {
                 }
                 replay_paths[num_replay_files++] = argv[++i];
             }
+        } else if (strcmp(argv[i], "--terrain-dem") == 0 && i + 1 < argc) {
+            dem_path = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -475,6 +582,40 @@ int main(int argc, char *argv[]) {
         // Guard: if vehicle_count is somehow 0, exit the loop to avoid
         // out-of-bounds access on sources[selected] / vehicles[selected].
         if (vehicle_count <= 0) break;
+
+        if (dem_path && vehicles[selected].origin_set) {
+            const vehicle_t *o = &vehicles[selected];
+            dem_grid_t dem;
+            if (dem_load_geotiff(dem_path, &dem)) {
+                float ground;
+                if (dem_sample(&dem, o->lat0 * 180.0 / M_PI, o->lon0 * 180.0 / M_PI, &ground))
+                    printf("dem: ground at the origin %.2f m, origin altitude %.2f m\n", ground, o->alt0);
+                if (dem_build_model(&dem, o->lat0, o->lon0, o->alt0, 5000.0f, &dem_model)) {
+                    scene.terrain_active = true;
+                    vehicle_floor_is_flat = false;
+                    rlSetClipPlanes(0.1, 30000.0);
+                    char vs[ASSET_MAX_PATH], fs[ASSET_MAX_PATH];
+                    asset_path("shaders/dem.vs", vs, sizeof vs);
+                    asset_path("shaders/dem.fs", fs, sizeof fs);
+                    dem_shader = LoadShader(vs, fs);
+                    dem_loc_mode = GetShaderLocation(dem_shader, "mode");
+                    dem_loc_bands = GetShaderLocation(dem_shader, "bands");
+                    dem_loc_warn = GetShaderLocation(dem_shader, "warn");
+                    float y_min, band_m, cell_m;
+                    dem_shader_scale(&y_min, &band_m, &cell_m);
+                    SetShaderValue(dem_shader, GetShaderLocation(dem_shader, "yMin"), &y_min, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(dem_shader, GetShaderLocation(dem_shader, "bandM"), &band_m, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(dem_shader, GetShaderLocation(dem_shader, "cellM"), &cell_m, SHADER_UNIFORM_FLOAT);
+                    dem_model.materials[0].shader = dem_shader;
+                    dem_theme = NULL;
+                } else {
+                    fprintf(stderr, "dem: the origin is outside the map\n");
+                }
+                free(dem.z);
+            }
+            fflush(stdout);
+            dem_path = NULL;
+        }
 
         // Poll all data sources and update vehicles
         for (int i = 0; i < vehicle_count; i++) {
@@ -884,6 +1025,15 @@ int main(int argc, char *argv[]) {
             dbg_panel.visible = !dbg_panel.visible;
         }
 
+        // Ground color on the DEM, the shade alone, elevation bands, bands and contour lines (Ctrl+F)
+        if (scene.terrain_active && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_F)) {
+            dem_color = (dem_color + 1) % 3;
+            static const char *const names[3] = {"shade", "elevation bands", "elevation bands and contour lines"};
+            char msg[96];
+            snprintf(msg, sizeof msg, "Ground: %s", names[dem_color]);
+            hud_toast(&hud, msg, 3.0f);
+        }
+
         // Toggle screen edge indicators and correlation labels (Ctrl+L)
         if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_L)) {
             show_edge_indicators = !show_edge_indicators;
@@ -1239,6 +1389,24 @@ int main(int argc, char *argv[]) {
 
             BeginMode3D(scene.camera);
                 scene_draw(&scene);
+                if (scene.terrain_active) {
+                    if (scene.theme != dem_theme) {
+                        theme_elevation_ramp(scene.theme, dem_ramp);
+                        float bands[30], warn[3] = {scene.theme->hud_warn.r / 255.0f, scene.theme->hud_warn.g / 255.0f,
+                                                    scene.theme->hud_warn.b / 255.0f};
+                        for (int k = 0; k < 10; k++) {
+                            Color c = dem_band_color(dem_ramp, k);
+                            bands[k * 3] = c.r / 255.0f; bands[k * 3 + 1] = c.g / 255.0f; bands[k * 3 + 2] = c.b / 255.0f;
+                        }
+                        SetShaderValueV(dem_shader, dem_loc_bands, bands, SHADER_UNIFORM_VEC3, 10);
+                        SetShaderValue(dem_shader, dem_loc_warn, warn, SHADER_UNIFORM_VEC3);
+                        dem_theme = scene.theme;
+                    }
+                    SetShaderValue(dem_shader, dem_loc_mode, &dem_color, SHADER_UNIFORM_INT);
+                    rlDisableBackfaceCulling();
+                    DrawModel(dem_model, (Vector3){0}, 1.0f, clamp_luminance(scene.theme->ground, 0.30f, 0.65f));
+                    rlEnableBackfaceCulling();
+                }
                 for (int i = 0; i < vehicle_count; i++) {
                     if (vehicles[i].active || vehicle_count == 1) {
                         vehicle_draw(&vehicles[i], scene.theme, i == selected,
@@ -1336,6 +1504,14 @@ int main(int argc, char *argv[]) {
                 draw_edge_indicators(vehicles, vehicle_count, selected,
                                      scene.camera, hud.font_value, ei_scale);
             }
+
+            // the legend steps aside while the O ortho overlays are up
+            if (scene.terrain_active && dem_color > 0)
+                dem_draw_overlay(&hud, scene.theme, scene.camera, dem_ramp, dem_color == 2, !ortho.visible,
+                                 hud_top_left_anchor(&hud, GetScreenWidth(), GetScreenHeight(),
+                                                     ortho_panel_fullscreen_top(GetScreenHeight(), scene.ortho_mode)),
+                                 vehicles, vehicle_count,
+                                 GetScreenHeight() - (show_hud ? hud_bar_height(&hud, GetScreenHeight()) : 0));
 
             // Marker labels (2D billboarded text, after EndMode3D)
             if (is_replay && show_marker_labels) {

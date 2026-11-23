@@ -36,6 +36,8 @@ void ortho_draw_fullscreen_2d(const scene_t *s, const vehicle_t *vehicles,
                               int corr_mode, const int *pinned, int pinned_count,
                               int screen_w, int screen_h, Font font,
                               bool show_labels);
+// The height the fullscreen view's name and scale bar take at the top, zero outside those views.
+float ortho_panel_fullscreen_top(int screen_h, int ortho_mode);
 void ortho_panel_draw_fullscreen_label(int screen_w, int screen_h, int ortho_mode,
                                        float ortho_span, const theme_t *theme,
                                        Font font, bool show_axes);

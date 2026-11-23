@@ -95,4 +95,8 @@ void hud_feed_statustext(hud_t *h, const struct statustext_ring *ring, int drone
 // Returns the total height of the HUD bar in pixels (for layout by other panels).
 int hud_bar_height(const hud_t *h, int screen_h);
 
+// Where a panel may start in the top left corner, under the HUD's own content there. taken is the
+// height something else already holds at the top, such as the fullscreen ortho view's scale bar.
+Vector2 hud_top_left_anchor(const hud_t *h, int screen_w, int screen_h, float taken);
+
 #endif

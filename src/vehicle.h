@@ -142,6 +142,9 @@ void vehicle_cycle_model(vehicle_t *v);
 // Select model group and default model based on MAV_TYPE from heartbeat.
 void vehicle_set_type(vehicle_t *v, uint8_t mav_type);
 
+// False when terrain is drawn, so the vehicle follows the log altitude below home.
+extern bool vehicle_floor_is_flat;
+
 // Update position/rotation from HIL_STATE_QUATERNION data.
 // home may be NULL; if valid, its altitude is used as ground reference.
 void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_t *home);
